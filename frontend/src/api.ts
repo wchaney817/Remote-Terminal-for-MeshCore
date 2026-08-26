@@ -289,10 +289,18 @@ export const api = {
   getPacket: (packetId: number) => fetchJson<RawPacket>(`/packets/${packetId}`),
   getUndecryptedPacketCount: () => fetchJson<{ count: number }>('/packets/undecrypted/count'),
   // Personal-fork addition (not upstream): backfill the live packet feed from history.
-  getRecentPackets: (sinceUnixSeconds: number, limit?: number) =>
-    fetchJson<RawPacket[]>(
-      `/packets/recent?since=${sinceUnixSeconds}${limit !== undefined ? `&limit=${limit}` : ''}`
-    ),
+  // payloadTypes are backend PayloadType enum names (e.g. "GROUP_TEXT"), not the
+  // frontend's own decoder-derived type labels — see RawPacketFeedView's mapping.
+  getRecentPackets: (sinceUnixSeconds: number, limit?: number, payloadTypes?: string[]) => {
+    const params = new URLSearchParams({ since: String(sinceUnixSeconds) });
+    if (limit !== undefined) {
+      params.set('limit', String(limit));
+    }
+    if (payloadTypes && payloadTypes.length > 0) {
+      params.set('payload_types', payloadTypes.join(','));
+    }
+    return fetchJson<RawPacket[]>(`/packets/recent?${params.toString()}`);
+  },
   decryptHistoricalPackets: (params: {
     key_type: 'channel' | 'contact';
     channel_key?: string;

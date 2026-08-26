@@ -8,7 +8,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Response, 
 from pydantic import BaseModel, Field
 
 from app.database import db
-from app.decoder import parse_packet, try_decrypt_packet_with_channel_key
+from app.decoder import PayloadType, parse_packet, try_decrypt_packet_with_channel_key
 from app.models import RawPacketBroadcast, RawPacketDecryptedInfo, RawPacketDetail
 from app.packet_processor import create_message_from_decrypted, run_historical_dm_decryption
 from app.region_resolver import resolve_region
@@ -211,12 +211,29 @@ async def _resolve_packet_extras(packet_data: bytes, message_id: int | None) -> 
     return _PacketExtras(payload_type_name, transport_code, region, decrypted_info, rssi, snr)
 
 
+_VALID_PAYLOAD_TYPE_FILTER_NAMES = {member.name for member in PayloadType} | {"Unknown"}
+
+# payload_type isn't a stored/indexed column (it's derived by parsing each packet's
+# header), so filtering by it means scanning rows rather than relying on SQL LIMIT to
+# already contain enough matches. Capped so a rare type over a huge window can't force
+# an unbounded scan.
+PAYLOAD_TYPE_FILTER_SCAN_LIMIT = 5000
+
+
 @router.get("/recent", response_model=list[RawPacketBroadcast])
 async def list_recent_packets(
     since: int = Query(
         description="Unix timestamp (seconds); return packets at or after this time"
     ),
-    limit: int = Query(500, ge=1, le=2000, description="Max packets to return"),
+    limit: int = Query(500, ge=1, le=2000, description="Max matching packets to return"),
+    payload_types: str | None = Query(
+        default=None,
+        description=(
+            "Comma-separated PayloadType names to restrict results to (e.g. "
+            "'GROUP_TEXT,TEXT_MESSAGE'). Personal-fork addition (not upstream). "
+            "Omit for no filtering."
+        ),
+    ),
 ) -> list[RawPacketBroadcast]:
     """Backfill the live packet feed from persisted history (personal-fork addition, not upstream).
 
@@ -229,11 +246,32 @@ async def list_recent_packets(
     Historical rows get a synthetic negative `observation_id` — real per-arrival ids
     from the live WS stream start at 1 and only increase for the life of the
     process, so negative ids can't collide.
+
+    With `payload_types` set, `limit` counts matching packets, not rows scanned —
+    up to `PAYLOAD_TYPE_FILTER_SCAN_LIMIT` rows in the window are examined (newest
+    first) to find them.
     """
-    rows = await RawPacketRepository.list_recent(since, limit)
+    requested_types: set[str] | None = None
+    if payload_types:
+        requested_types = {name.strip() for name in payload_types.split(",") if name.strip()}
+        unknown_types = requested_types - _VALID_PAYLOAD_TYPE_FILTER_NAMES
+        if unknown_types:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown payload type(s): {', '.join(sorted(unknown_types))}",
+            )
+
+    scan_limit = PAYLOAD_TYPE_FILTER_SCAN_LIMIT if requested_types is not None else limit
+    rows = await RawPacketRepository.list_recent(since, scan_limit)
 
     packets: list[RawPacketBroadcast] = []
     for stored_packet_id, packet_data, packet_timestamp, message_id in rows:
+        if requested_types is not None:
+            packet_info = parse_packet(packet_data)
+            type_name = packet_info.payload_type.name if packet_info else "Unknown"
+            if type_name not in requested_types:
+                continue
+
         extras = await _resolve_packet_extras(packet_data, message_id)
         packets.append(
             RawPacketBroadcast(
@@ -250,6 +288,8 @@ async def list_recent_packets(
                 region=extras.region,
             )
         )
+        if len(packets) >= limit:
+            break
 
     packets.reverse()  # rows arrive newest-first; the feed buffer wants oldest-first
     return packets

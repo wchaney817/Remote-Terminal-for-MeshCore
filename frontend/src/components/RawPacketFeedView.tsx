@@ -31,6 +31,7 @@ import {
 } from '../utils/rawPacketStats';
 import { createDecoderOptions } from '../utils/rawPacketInspector';
 import {
+  clearRawPackets,
   mergeHistoricalRawPackets,
   useRawPacketStatsSession,
   useRawPackets,
@@ -242,6 +243,25 @@ const HISTORY_LOAD_WINDOWS = [
 ] as const;
 
 const DEFAULT_HISTORY_LOAD_SECONDS: number = HISTORY_LOAD_WINDOWS[3].seconds; // 3 hours
+
+// Personal-fork addition (not upstream): the feed's payload-type checkboxes use
+// @michaelhart/meshcore-decoder's own type names (KNOWN_PAYLOAD_TYPES above), which
+// don't match the backend's PayloadType enum names that GET /packets/recent filters
+// by (see app/decoder.py). Map checkbox label -> backend enum name for "Use filters".
+// GROUP_DATA / ANON_REQUEST / MULTIPART / RAW_CUSTOM exist on the backend but have no
+// checkbox at all, so they can never be requested through this control.
+const FRONTEND_TO_BACKEND_PAYLOAD_TYPE: Record<string, string> = {
+  Advert: 'ADVERT',
+  GroupText: 'GROUP_TEXT',
+  TextMessage: 'TEXT_MESSAGE',
+  Ack: 'ACK',
+  Request: 'REQUEST',
+  Response: 'RESPONSE',
+  Trace: 'TRACE',
+  Path: 'PATH',
+  Control: 'CONTROL',
+  Unknown: 'Unknown',
+};
 
 function formatTimestamp(timestampMs: number): string {
   return new Date(timestampMs).toLocaleString([], {
@@ -629,21 +649,37 @@ export function RawPacketFeedView({ contacts, channels }: RawPacketFeedViewProps
   // Personal-fork addition (not upstream): history backfill window + fetch state.
   const [historyWindowSeconds, setHistoryWindowSeconds] = useState(DEFAULT_HISTORY_LOAD_SECONDS);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [useTypeFiltersForFetch, setUseTypeFiltersForFetch] = useState(false);
 
   const handleLoadHistory = async () => {
     setHistoryLoading(true);
     try {
       const since = Math.floor(Date.now() / 1000) - historyWindowSeconds;
-      const historicalPackets = await api.getRecentPackets(since);
+      const allTypesEnabledForFetch = enabledTypes.size === KNOWN_PAYLOAD_TYPES.length;
+      const payloadTypes =
+        useTypeFiltersForFetch && !allTypesEnabledForFetch
+          ? Array.from(enabledTypes)
+              .map((type) => FRONTEND_TO_BACKEND_PAYLOAD_TYPE[type])
+              .filter((type): type is string => Boolean(type))
+          : undefined;
+      const historicalPackets = await api.getRecentPackets(since, undefined, payloadTypes);
       mergeHistoricalRawPackets(historicalPackets);
+      const filterNote = payloadTypes
+        ? ` (filtered to ${Array.from(enabledTypes).join(', ')})`
+        : '';
       toast.success(
-        `Loaded ${historicalPackets.length.toLocaleString()} packet${historicalPackets.length === 1 ? '' : 's'} from history`
+        `Loaded ${historicalPackets.length.toLocaleString()} packet${historicalPackets.length === 1 ? '' : 's'} from history${filterNote}`
       );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to load packet history');
     } finally {
       setHistoryLoading(false);
     }
+  };
+
+  const handleClearFeed = () => {
+    clearRawPackets();
+    toast.success('Cleared the packet feed');
   };
 
   const decoderOptions = useMemo(() => createDecoderOptions(channels), [channels]);
@@ -762,6 +798,19 @@ export function RawPacketFeedView({ contacts, channels }: RawPacketFeedViewProps
                 ))}
               </select>
             </label>
+            <label
+              className="flex items-center gap-1 text-xs text-muted-foreground cursor-pointer"
+              title="Restrict the fetch to the payload types checked below in the filter bar"
+            >
+              <input
+                type="checkbox"
+                checked={useTypeFiltersForFetch}
+                onChange={(event) => setUseTypeFiltersForFetch(event.target.checked)}
+                className="rounded"
+                disabled={historyLoading}
+              />
+              Use filters
+            </label>
             <Button
               type="button"
               variant="outline"
@@ -770,6 +819,15 @@ export function RawPacketFeedView({ contacts, channels }: RawPacketFeedViewProps
               disabled={historyLoading}
             >
               {historyLoading ? 'Loading…' : 'Fetch'}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleClearFeed}
+              disabled={historyLoading || packets.length === 0}
+            >
+              Clear
             </Button>
             <Button
               type="button"

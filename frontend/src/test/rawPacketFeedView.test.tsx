@@ -496,22 +496,29 @@ describe('RawPacketFeedView', () => {
   describe('load history', () => {
     it('defaults to a 3 hour window and fetches from the computed cutoff', async () => {
       vi.useFakeTimers();
-      vi.setSystemTime(new Date('2024-01-01T12:00:00Z'));
-      mocks.api.getRecentPackets.mockResolvedValue([]);
+      try {
+        vi.setSystemTime(new Date('2024-01-01T12:00:00Z'));
+        mocks.api.getRecentPackets.mockResolvedValue([]);
 
-      renderView();
+        renderView();
 
-      expect(screen.getByLabelText('History backfill window')).toHaveValue(String(3 * 60 * 60));
+        expect(screen.getByLabelText('History backfill window')).toHaveValue(String(3 * 60 * 60));
 
-      fireEvent.click(screen.getByRole('button', { name: 'Fetch' }));
-      await act(async () => {
-        await Promise.resolve();
-      });
+        fireEvent.click(screen.getByRole('button', { name: 'Fetch' }));
+        await act(async () => {
+          await Promise.resolve();
+        });
 
-      const expectedSince = Math.floor(Date.parse('2024-01-01T12:00:00Z') / 1000) - 3 * 60 * 60;
-      expect(mocks.api.getRecentPackets).toHaveBeenCalledWith(expectedSince);
-
-      vi.useRealTimers();
+        const expectedSince = Math.floor(Date.parse('2024-01-01T12:00:00Z') / 1000) - 3 * 60 * 60;
+        // No type filter checked by default, so payloadTypes is undefined.
+        expect(mocks.api.getRecentPackets).toHaveBeenCalledWith(
+          expectedSince,
+          undefined,
+          undefined
+        );
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('fetches from the selected window and merges the result into the feed', async () => {
@@ -547,6 +554,96 @@ describe('RawPacketFeedView', () => {
 
       await waitFor(() => expect(mocks.toast.error).toHaveBeenCalledWith('boom'));
       expect(getRawPackets()).toHaveLength(0);
+    });
+
+    it('does not filter when "Use filters" is unchecked, even with types unchecked', async () => {
+      mocks.api.getRecentPackets.mockResolvedValue([]);
+
+      renderView();
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Advert' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Fetch' }));
+
+      await waitFor(() => expect(mocks.api.getRecentPackets).toHaveBeenCalled());
+      expect(mocks.api.getRecentPackets).toHaveBeenCalledWith(
+        expect.any(Number),
+        undefined,
+        undefined
+      );
+    });
+
+    it('sends mapped backend payload type names when "Use filters" is checked', async () => {
+      mocks.api.getRecentPackets.mockResolvedValue([]);
+
+      renderView();
+      // Uncheck everything except GroupText and Ack.
+      for (const type of [
+        'Advert',
+        'TextMessage',
+        'Request',
+        'Response',
+        'Trace',
+        'Path',
+        'Control',
+        'Unknown',
+      ]) {
+        fireEvent.click(screen.getByRole('checkbox', { name: type }));
+      }
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Use filters' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Fetch' }));
+
+      await waitFor(() => expect(mocks.api.getRecentPackets).toHaveBeenCalled());
+      const [, , payloadTypes] = mocks.api.getRecentPackets.mock.calls[0];
+      expect(payloadTypes).toEqual(expect.arrayContaining(['GROUP_TEXT', 'ACK']));
+      expect(payloadTypes).toHaveLength(2);
+    });
+
+    it('omits the filter when "Use filters" is checked but every type is still enabled', async () => {
+      mocks.api.getRecentPackets.mockResolvedValue([]);
+
+      renderView();
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Use filters' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Fetch' }));
+
+      await waitFor(() => expect(mocks.api.getRecentPackets).toHaveBeenCalled());
+      expect(mocks.api.getRecentPackets).toHaveBeenCalledWith(
+        expect.any(Number),
+        undefined,
+        undefined
+      );
+    });
+  });
+
+  describe('clear button', () => {
+    it('is disabled when the feed is empty', () => {
+      renderView({ packets: [] });
+
+      expect(screen.getByRole('button', { name: 'Clear' })).toBeDisabled();
+    });
+
+    it('empties the feed and leaves session stats untouched', () => {
+      renderView({
+        packets: [
+          {
+            id: 1,
+            observation_id: 1,
+            timestamp: 1_700_000_000,
+            data: 'aabbcc',
+            payload_type: 'Unknown',
+            rssi: null,
+            snr: null,
+            decrypted: false,
+            decrypted_info: null,
+          },
+        ],
+      });
+
+      const clearButton = screen.getByRole('button', { name: 'Clear' });
+      expect(clearButton).not.toBeDisabled();
+
+      fireEvent.click(clearButton);
+
+      expect(getRawPackets()).toHaveLength(0);
+      expect(mocks.toast.success).toHaveBeenCalledWith('Cleared the packet feed');
     });
   });
 });

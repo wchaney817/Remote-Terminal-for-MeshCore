@@ -277,6 +277,57 @@ class TestListRecentPackets:
         assert response.status_code == 422
 
     @pytest.mark.asyncio
+    async def test_filters_by_payload_type(self, test_db, client):
+        """payload_types restricts results, scanning past non-matching rows."""
+        # route_type=FLOOD(1), payload_type=ADVERT(4), payload_version=0, path_byte=0 (0 hops)
+        advert_header = 1 | (4 << 2)
+        # route_type=FLOOD(1), payload_type=GROUP_TEXT(5), payload_version=0, path_byte=0
+        group_text_header = 1 | (5 << 2)
+
+        await RawPacketRepository.create(bytes([advert_header, 0]) + b"advert-payload", 1000)
+        group_text_id, _ = await RawPacketRepository.create(
+            bytes([group_text_header, 0]) + b"grouptext-payload", 2000
+        )
+
+        response = await client.get("/api/packets/recent?since=0&payload_types=GROUP_TEXT")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["id"] == group_text_id
+        assert data[0]["payload_type"] == "GROUP_TEXT"
+
+    @pytest.mark.asyncio
+    async def test_payload_types_limit_counts_matches_not_scanned_rows(self, test_db, client):
+        advert_header = 1 | (4 << 2)
+        group_text_header = 1 | (5 << 2)
+
+        await RawPacketRepository.create(bytes([advert_header, 0]) + b"advert-1", 1000)
+        await RawPacketRepository.create(bytes([advert_header, 0]) + b"advert-2", 1500)
+        first_gt_id, _ = await RawPacketRepository.create(
+            bytes([group_text_header, 0]) + b"grouptext-1", 2000
+        )
+        second_gt_id, _ = await RawPacketRepository.create(
+            bytes([group_text_header, 0]) + b"grouptext-2", 3000
+        )
+
+        response = await client.get("/api/packets/recent?since=0&payload_types=GROUP_TEXT&limit=1")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        # limit=1 should keep the newest match, not whichever row the scan hit first.
+        assert data[0]["id"] == second_gt_id
+        assert data[0]["id"] != first_gt_id
+
+    @pytest.mark.asyncio
+    async def test_rejects_unknown_payload_type_name(self, test_db, client):
+        response = await client.get("/api/packets/recent?since=0&payload_types=NOT_A_REAL_TYPE")
+
+        assert response.status_code == 400
+        assert "NOT_A_REAL_TYPE" in response.json()["detail"]
+
+    @pytest.mark.asyncio
     async def test_not_shadowed_by_packet_id_route(self, test_db, client):
         """`/recent` must resolve to this endpoint, not the `/{packet_id}` route."""
         response = await client.get("/api/packets/recent?since=0")
