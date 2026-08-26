@@ -40,6 +40,8 @@ class TestBotModuleParameterExtraction:
             packet_hash,
             region,
             scoped,
+            rssi,
+            snr,
         ):
             captured["is_outgoing"] = is_outgoing
             captured["is_dm"] = is_dm
@@ -92,6 +94,8 @@ class TestBotModuleParameterExtraction:
             packet_hash,
             region,
             scoped,
+            rssi,
+            snr,
         ):
             captured["is_outgoing"] = is_outgoing
             return None
@@ -141,6 +145,8 @@ class TestBotModuleParameterExtraction:
             packet_hash,
             region,
             scoped,
+            rssi,
+            snr,
         ):
             captured["path"] = path
             captured["path_bytes_per_hop"] = path_bytes_per_hop
@@ -192,6 +198,8 @@ class TestBotModuleParameterExtraction:
             packet_hash,
             region,
             scoped,
+            rssi,
+            snr,
         ):
             captured["region"] = region
             return None
@@ -243,6 +251,8 @@ class TestBotModuleParameterExtraction:
             packet_hash,
             region,
             scoped,
+            rssi,
+            snr,
         ):
             captured["region"] = region
             return None
@@ -291,6 +301,8 @@ class TestBotModuleParameterExtraction:
             packet_hash,
             region,
             scoped,
+            rssi,
+            snr,
         ):
             captured["scoped"] = scoped
             return None
@@ -344,6 +356,8 @@ class TestBotModuleParameterExtraction:
             packet_hash,
             region,
             scoped,
+            rssi,
+            snr,
         ):
             captured["scoped"] = scoped
             return None
@@ -392,6 +406,8 @@ class TestBotModuleParameterExtraction:
             packet_hash,
             region,
             scoped,
+            rssi,
+            snr,
         ):
             captured["message_text"] = message_text
             captured["sender_name"] = sender_name
@@ -443,6 +459,8 @@ class TestBotModuleParameterExtraction:
             packet_hash,
             region,
             scoped,
+            rssi,
+            snr,
         ):
             captured["channel_name"] = channel_name
             return None
@@ -493,6 +511,8 @@ class TestBotModuleParameterExtraction:
             packet_hash,
             region,
             scoped,
+            rssi,
+            snr,
         ):
             captured["sender_name"] = sender_name
             captured["sender_key"] = sender_key

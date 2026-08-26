@@ -126,7 +126,15 @@ def _analyze_bot_signature(bot_func_or_sig) -> BotCallPlan:
     has_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in param_values)
     explicit_optional_names = tuple(
         name
-        for name in ("is_outgoing", "path_bytes_per_hop", "packet_hash", "region", "scoped")
+        for name in (
+            "is_outgoing",
+            "path_bytes_per_hop",
+            "packet_hash",
+            "region",
+            "scoped",
+            "rssi",
+            "snr",
+        )
         if name in params
     )
     unsupported_required_kwonly = [
@@ -134,7 +142,16 @@ def _analyze_bot_signature(bot_func_or_sig) -> BotCallPlan:
         for p in param_values
         if p.kind == inspect.Parameter.KEYWORD_ONLY
         and p.default is inspect.Parameter.empty
-        and p.name not in {"is_outgoing", "path_bytes_per_hop", "packet_hash", "region", "scoped"}
+        and p.name
+        not in {
+            "is_outgoing",
+            "path_bytes_per_hop",
+            "packet_hash",
+            "region",
+            "scoped",
+            "rssi",
+            "snr",
+        }
     ]
     if unsupported_required_kwonly:
         raise ValueError(
@@ -166,6 +183,10 @@ def _analyze_bot_signature(bot_func_or_sig) -> BotCallPlan:
         keyword_args["region"] = None
     if has_kwargs or "scoped" in params:
         keyword_args["scoped"] = False
+    if has_kwargs or "rssi" in params:
+        keyword_args["rssi"] = None
+    if has_kwargs or "snr" in params:
+        keyword_args["snr"] = None
     candidate_specs.append(("keyword", [], keyword_args))
 
     if not has_kwargs and explicit_optional_names:
@@ -180,6 +201,10 @@ def _analyze_bot_signature(bot_func_or_sig) -> BotCallPlan:
             kwargs["region"] = None
         if has_kwargs or "scoped" in params:
             kwargs["scoped"] = False
+        if has_kwargs or "rssi" in params:
+            kwargs["rssi"] = None
+        if has_kwargs or "snr" in params:
+            kwargs["snr"] = None
         candidate_specs.append(("mixed_keyword", base_args, kwargs))
 
     if has_varargs or positional_capacity >= 11:
@@ -205,7 +230,8 @@ def _analyze_bot_signature(bot_func_or_sig) -> BotCallPlan:
         "Supported trailing parameters are: path; path + is_outgoing; "
         "path + path_bytes_per_hop; path + is_outgoing + path_bytes_per_hop; "
         "path + is_outgoing + path_bytes_per_hop + packet_hash; "
-        "or use **kwargs for forward compatibility (which also receives region and scoped)."
+        "or use **kwargs for forward compatibility (which also receives region, scoped, "
+        "rssi, and snr)."
     )
 
 
@@ -224,6 +250,8 @@ def execute_bot_code(
     packet_hash: str | None = None,
     region: str | None = None,
     scoped: bool = False,
+    rssi: int | None = None,
+    snr: float | None = None,
 ) -> str | list[str] | BotReply | None:
     """
     Execute user-provided bot code with message context.
@@ -232,9 +260,9 @@ def execute_bot_code(
     `bot(sender_name, sender_key, message_text, is_dm, channel_key, channel_name, sender_timestamp, path, is_outgoing, path_bytes_per_hop, packet_hash)`
     or use named parameters / `**kwargs`.
 
-    `region` and `scoped` are only delivered to bots that opt in via `**kwargs`
-    or by naming the parameter; the positional call styles are unchanged for
-    backward compatibility.
+    `region`, `scoped`, `rssi`, and `snr` are only delivered to bots that opt in
+    via `**kwargs` or by naming the parameter; the positional call styles are
+    unchanged for backward compatibility.
 
     The bot returns either None (no response), a string (single response message),
     a list of strings (multiple messages sent in order), or a dict
@@ -266,6 +294,8 @@ def execute_bot_code(
             the decoded region name, or None if the scope matched none of your
             known_regions (i.e. scoped, but region unrecognized). region is never
             enough on its own to tell "unscoped" from "unrecognized" — use scoped.
+        rssi: Last-hop RSSI in dBm for this message's first recorded path, if known.
+        snr: Last-hop SNR in dB for this message's first recorded path, if known.
 
     Returns:
         Response string, list of strings, or None.
@@ -369,6 +399,10 @@ def execute_bot_code(
                 keyword_args["region"] = region
             if "scoped" in call_plan.keyword_args:
                 keyword_args["scoped"] = scoped
+            if "rssi" in call_plan.keyword_args:
+                keyword_args["rssi"] = rssi
+            if "snr" in call_plan.keyword_args:
+                keyword_args["snr"] = snr
             result = bot_func(**keyword_args)
         else:
             result = bot_func(

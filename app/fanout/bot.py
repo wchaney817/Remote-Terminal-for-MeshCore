@@ -133,9 +133,15 @@ class BotModule(FanoutModule):
         path_value = data.get("path")
         paths = data.get("paths")
         # Message model serializes paths as list of dicts; extract first path string
-        if path_value is None and paths and isinstance(paths, list) and len(paths) > 0:
-            path_value = paths[0].get("path") if isinstance(paths[0], dict) else None
+        first_path = (
+            paths[0] if isinstance(paths, list) and paths and isinstance(paths[0], dict) else None
+        )
+        if path_value is None and first_path is not None:
+            path_value = first_path.get("path")
         path_bytes_per_hop = _derive_path_bytes_per_hop(paths, path_value)
+        # Last-hop RSSI/SNR of the first recorded path, when the radio reported them.
+        rssi = first_path.get("rssi") if first_path is not None else None
+        snr = first_path.get("snr") if first_path is not None else None
         packet_hash = data.get("packet_hash")
         # Resolved region name (None for unscoped flood or a transport code that
         # matched no known region). `scoped` disambiguates None: a transport code
@@ -171,6 +177,8 @@ class BotModule(FanoutModule):
                         packet_hash,
                         region,
                         scoped,
+                        rssi,
+                        snr,
                     ),
                     timeout=BOT_EXECUTION_TIMEOUT,
                 )

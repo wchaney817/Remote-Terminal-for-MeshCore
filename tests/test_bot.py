@@ -600,6 +600,89 @@ def bot(sender_name, sender_key, message_text, is_dm, channel_key, channel_name,
         )
         assert result == "ok:Hi"
 
+    def test_kwargs_bot_receives_rssi_and_snr(self):
+        """Bots using **kwargs receive rssi/snr for the message's first recorded path."""
+        code = """
+def bot(sender_name, sender_key, message_text, is_dm, channel_key, channel_name, sender_timestamp, path, **kwargs):
+    return f"rssi={kwargs.get('rssi', 'missing')},snr={kwargs.get('snr', 'missing')}"
+"""
+        result = execute_bot_code(
+            code=code,
+            sender_name="Someone",
+            sender_key=None,
+            message_text="Hi",
+            is_dm=False,
+            channel_key="AABBCCDD",
+            channel_name="#general",
+            sender_timestamp=None,
+            path=None,
+            rssi=-45,
+            snr=12.0,
+        )
+        assert result == "rssi=-45,snr=12.0"
+
+    def test_named_rssi_snr_params_bot_receives_values(self):
+        """Bots may opt into rssi/snr by naming the parameters (with defaults)."""
+        code = """
+def bot(sender_name, sender_key, message_text, is_dm, channel_key, channel_name, sender_timestamp, path, rssi=None, snr=None):
+    return f"rssi={rssi},snr={snr}"
+"""
+        result = execute_bot_code(
+            code=code,
+            sender_name="Someone",
+            sender_key=None,
+            message_text="Hi",
+            is_dm=False,
+            channel_key="AABBCCDD",
+            channel_name="#general",
+            sender_timestamp=None,
+            path=None,
+            rssi=-45,
+            snr=12.0,
+        )
+        assert result == "rssi=-45,snr=12.0"
+
+    def test_rssi_snr_default_none_when_unknown(self):
+        """rssi/snr are delivered as None (not absent) when the radio didn't report them."""
+        code = """
+def bot(**kwargs):
+    return f"rssi={kwargs.get('rssi', 'missing')},snr={kwargs.get('snr', 'missing')}"
+"""
+        result = execute_bot_code(
+            code=code,
+            sender_name="Alice",
+            sender_key="abc123",
+            message_text="Hi",
+            is_dm=True,
+            channel_key=None,
+            channel_name=None,
+            sender_timestamp=None,
+            path=None,
+        )
+        assert result == "rssi=None,snr=None"
+
+    def test_legacy_positional_bot_unaffected_by_rssi_snr(self):
+        """Historical positional bots keep binding unchanged; rssi/snr are never passed positionally."""
+        code = """
+def bot(sender_name, sender_key, message_text, is_dm, channel_key, channel_name, sender_timestamp, path, is_outgoing):
+    return f"ok:{message_text}"
+"""
+        result = execute_bot_code(
+            code=code,
+            sender_name="Alice",
+            sender_key="abc123",
+            message_text="Hi",
+            is_dm=True,
+            channel_key=None,
+            channel_name=None,
+            sender_timestamp=None,
+            path=None,
+            is_outgoing=False,
+            rssi=-45,
+            snr=12.0,
+        )
+        assert result == "ok:Hi"
+
     def test_dict_return_with_region_produces_bot_reply(self):
         """A {"region", "message"} return becomes a BotReply with a normalized scope (#300)."""
         from app.fanout.bot_exec import BotReply
