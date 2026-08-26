@@ -108,6 +108,16 @@ bash scripts/setup/install_service.sh
 
 You can also rerun the script later to change transport, bot, or auth settings. If the service is already running, the installer stops it, rewrites the unit file, reloads systemd, and starts it again with the new configuration.
 
+### Redeploying (personal-fork addition, not upstream)
+
+`scripts/setup/redeploy_fork.sh` pulls the latest commit on the current branch, runs `uv sync`, rebuilds the frontend from source (`npm ci && npm run build` — needed if this deployment was originally set up with the "prebuilt frontend" install option, since that never picks up local changes), and restarts the systemd service:
+
+```bash
+bash scripts/setup/redeploy_fork.sh
+```
+
+It refuses to run with uncommitted changes or a diverged branch (fast-forward only — it never force-resets), and exits non-zero if `/api/health` doesn't come back within 15s of the restart. Set `SERVICE_NAME` if you installed the service under a name other than `remoteterm`.
+
 ## Debug Logging And Bug Reports
 
 If you're experiencing issues or opening a bug report, please start the backend with debug logging enabled. Debug mode provides a much more detailed breakdown of radio communication, packet processing, and other internal operations, which makes it significantly easier to diagnose problems.
