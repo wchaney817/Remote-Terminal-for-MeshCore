@@ -524,33 +524,62 @@ function FieldBox({
   );
 }
 
+// Personal-fork-only tweak (not upstreamed): group the Sender/Message lines of a
+// decrypted GroupText or DM into one high-contrast box so they stand out from the
+// surrounding Sent/Flags metadata lines.
+const HIGHLIGHT_LINE_LABELS = new Set(['Sender:', 'Message:']);
+
+function PlaintextLine({ line }: { line: string }) {
+  const separatorIndex = line.indexOf(': ');
+  if (separatorIndex === -1) {
+    return <div className="font-mono">{line}</div>;
+  }
+
+  const label = line.slice(0, separatorIndex + 1);
+  const value = line.slice(separatorIndex + 2);
+
+  return (
+    <div>
+      <span>{label} </span>
+      <span className="font-mono">{value}</span>
+    </div>
+  );
+}
+
 function PlaintextContent({ text }: { text: string }) {
   const lines = text.split('\n');
 
-  return (
-    <div className="mt-1 space-y-1 text-sm leading-5 text-foreground">
-      {lines.map((line, index) => {
-        const separatorIndex = line.indexOf(': ');
-        if (separatorIndex === -1) {
-          return (
-            <div key={`${line}-${index}`} className="font-mono">
-              {line}
-            </div>
-          );
-        }
+  const elements: ReactNode[] = [];
+  let highlightBuffer: string[] = [];
 
-        const label = line.slice(0, separatorIndex + 1);
-        const value = line.slice(separatorIndex + 2);
+  const flushHighlightBuffer = () => {
+    if (highlightBuffer.length === 0) return;
+    elements.push(
+      <div
+        key={`highlight-${elements.length}`}
+        className="space-y-1 rounded-md bg-white p-2 text-black"
+      >
+        {highlightBuffer.map((line, index) => (
+          <PlaintextLine key={`${line}-${index}`} line={line} />
+        ))}
+      </div>
+    );
+    highlightBuffer = [];
+  };
 
-        return (
-          <div key={`${line}-${index}`}>
-            <span>{label} </span>
-            <span className="font-mono">{value}</span>
-          </div>
-        );
-      })}
-    </div>
-  );
+  lines.forEach((line, index) => {
+    const separatorIndex = line.indexOf(': ');
+    const label = separatorIndex === -1 ? null : line.slice(0, separatorIndex + 1);
+    if (label !== null && HIGHLIGHT_LINE_LABELS.has(label)) {
+      highlightBuffer.push(line);
+      return;
+    }
+    flushHighlightBuffer();
+    elements.push(<PlaintextLine key={`${line}-${index}`} line={line} />);
+  });
+  flushHighlightBuffer();
+
+  return <div className="mt-1 space-y-1 text-sm leading-5 text-foreground">{elements}</div>;
 }
 
 function FieldSection({
