@@ -288,6 +288,11 @@ export const api = {
   // Packets
   getPacket: (packetId: number) => fetchJson<RawPacket>(`/packets/${packetId}`),
   getUndecryptedPacketCount: () => fetchJson<{ count: number }>('/packets/undecrypted/count'),
+  // Personal-fork addition (not upstream): backfill the live packet feed from history.
+  getRecentPackets: (sinceUnixSeconds: number, limit?: number) =>
+    fetchJson<RawPacket[]>(
+      `/packets/recent?since=${sinceUnixSeconds}${limit !== undefined ? `&limit=${limit}` : ''}`
+    ),
   decryptHistoricalPackets: (params: {
     key_type: 'channel' | 'contact';
     channel_key?: string;

@@ -3,12 +3,12 @@ from hashlib import sha256
 from sqlite3 import OperationalError
 
 import aiosqlite
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Response, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 
 from app.database import db
 from app.decoder import parse_packet, try_decrypt_packet_with_channel_key
-from app.models import RawPacketDecryptedInfo, RawPacketDetail
+from app.models import RawPacketBroadcast, RawPacketDecryptedInfo, RawPacketDetail
 from app.packet_processor import create_message_from_decrypted, run_historical_dm_decryption
 from app.region_resolver import resolve_region
 from app.repository import (
@@ -142,14 +142,14 @@ async def backfill_regions() -> dict:
     return await backfill_message_regions(known_regions)
 
 
-@router.get("/{packet_id}", response_model=RawPacketDetail)
-async def get_raw_packet(packet_id: int) -> RawPacketDetail:
-    """Fetch one stored raw packet by row ID for on-demand inspection."""
-    packet_row = await RawPacketRepository.get_by_id(packet_id)
-    if packet_row is None:
-        raise HTTPException(status_code=404, detail="Raw packet not found")
+async def _resolve_packet_extras(
+    packet_data: bytes, message_id: int | None
+) -> tuple[str, int | None, str | None, RawPacketDecryptedInfo | None]:
+    """Shared payload-type/region/decrypted-info resolution for one raw packet row.
 
-    stored_packet_id, packet_data, packet_timestamp, message_id = packet_row
+    Used by both the single-packet detail endpoint and the history backfill list
+    endpoint so they stay consistent.
+    """
     packet_info = parse_packet(packet_data)
     payload_type_name = packet_info.payload_type.name if packet_info else "Unknown"
 
@@ -189,6 +189,64 @@ async def get_raw_packet(packet_id: int) -> RawPacketDetail:
                     sender_timestamp=message.sender_timestamp,
                     message=message.text,
                 )
+
+    return payload_type_name, transport_code, region, decrypted_info
+
+
+@router.get("/recent", response_model=list[RawPacketBroadcast])
+async def list_recent_packets(
+    since: int = Query(
+        description="Unix timestamp (seconds); return packets at or after this time"
+    ),
+    limit: int = Query(500, ge=1, le=2000, description="Max packets to return"),
+) -> list[RawPacketBroadcast]:
+    """Backfill the live packet feed from persisted history (personal-fork addition, not upstream).
+
+    Returns up to `limit` packets at/after `since`, oldest first, so callers can feed
+    them straight into a chronological live-feed buffer. Raw packet storage never
+    retained per-arrival RSSI/SNR (only the live WS broadcast computes those), so
+    `snr`/`rssi` are always null here. Historical rows get a synthetic negative
+    `observation_id` — real per-arrival ids from the live WS stream start at 1 and
+    only increase for the life of the process, so negative ids can't collide.
+    """
+    rows = await RawPacketRepository.list_recent(since, limit)
+
+    packets: list[RawPacketBroadcast] = []
+    for stored_packet_id, packet_data, packet_timestamp, message_id in rows:
+        payload_type_name, transport_code, region, decrypted_info = await _resolve_packet_extras(
+            packet_data, message_id
+        )
+        packets.append(
+            RawPacketBroadcast(
+                id=stored_packet_id,
+                observation_id=-stored_packet_id,
+                timestamp=packet_timestamp,
+                data=packet_data.hex(),
+                payload_type=payload_type_name,
+                snr=None,
+                rssi=None,
+                decrypted=message_id is not None,
+                decrypted_info=decrypted_info,
+                transport_code=transport_code,
+                region=region,
+            )
+        )
+
+    packets.reverse()  # rows arrive newest-first; the feed buffer wants oldest-first
+    return packets
+
+
+@router.get("/{packet_id}", response_model=RawPacketDetail)
+async def get_raw_packet(packet_id: int) -> RawPacketDetail:
+    """Fetch one stored raw packet by row ID for on-demand inspection."""
+    packet_row = await RawPacketRepository.get_by_id(packet_id)
+    if packet_row is None:
+        raise HTTPException(status_code=404, detail="Raw packet not found")
+
+    stored_packet_id, packet_data, packet_timestamp, message_id = packet_row
+    payload_type_name, transport_code, region, decrypted_info = await _resolve_packet_extras(
+        packet_data, message_id
+    )
 
     return RawPacketDetail(
         id=stored_packet_id,

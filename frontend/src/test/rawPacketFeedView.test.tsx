@@ -1,10 +1,19 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { RawPacketFeedView } from '../components/RawPacketFeedView';
-import { resetRawPacketStore, seedRawPacketStore } from '../stores/rawPacketStore';
+import { getRawPackets, resetRawPacketStore, seedRawPacketStore } from '../stores/rawPacketStore';
 import type { RawPacketStatsSessionState } from '../utils/rawPacketStats';
 import type { Channel, Contact, RawPacket } from '../types';
+
+// Personal-fork addition (not upstream): "Load history" backfill control.
+const mocks = vi.hoisted(() => ({
+  api: { getRecentPackets: vi.fn() },
+  toast: { error: vi.fn(), success: vi.fn() },
+}));
+
+vi.mock('../api', () => ({ api: mocks.api }));
+vi.mock('../components/ui/sonner', () => ({ toast: mocks.toast }));
 
 const GROUP_TEXT_PACKET_HEX =
   '1500E69C7A89DD0AF6A2D69F5823B88F9720731E4B887C56932BF889255D8D926D99195927144323A42DD8A158F878B518B8304DF55E80501C7D02A9FFD578D3518283156BBA257BF8413E80A237393B2E4149BBBC864371140A9BBC4E23EB9BF203EF0D029214B3E3AAC3C0295690ACDB89A28619E7E5F22C83E16073AD679D25FA904D07E5ACF1DB5A7C77D7E1719FB9AE5BF55541EE0D7F59ED890E12CF0FEED6700818';
@@ -116,6 +125,9 @@ function renderView({
 describe('RawPacketFeedView', () => {
   beforeEach(() => {
     resetRawPacketStore();
+    mocks.api.getRecentPackets.mockReset();
+    mocks.toast.error.mockReset();
+    mocks.toast.success.mockReset();
   });
 
   afterEach(() => {
@@ -479,5 +491,62 @@ describe('RawPacketFeedView', () => {
     expect(screen.getByText(/channel hash e6/i)).toBeInTheDocument();
     expect(screen.queryByText('#six77')).not.toBeInTheDocument();
     expect(screen.queryByText('#collision')).not.toBeInTheDocument();
+  });
+
+  describe('load history', () => {
+    it('defaults to a 3 hour window and fetches from the computed cutoff', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2024-01-01T12:00:00Z'));
+      mocks.api.getRecentPackets.mockResolvedValue([]);
+
+      renderView();
+
+      expect(screen.getByLabelText('History backfill window')).toHaveValue(String(3 * 60 * 60));
+
+      fireEvent.click(screen.getByRole('button', { name: 'Fetch' }));
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      const expectedSince = Math.floor(Date.parse('2024-01-01T12:00:00Z') / 1000) - 3 * 60 * 60;
+      expect(mocks.api.getRecentPackets).toHaveBeenCalledWith(expectedSince);
+
+      vi.useRealTimers();
+    });
+
+    it('fetches from the selected window and merges the result into the feed', async () => {
+      const fetched: RawPacket = {
+        id: 42,
+        observation_id: -42,
+        timestamp: 1_700_000_000,
+        data: 'aabbcc',
+        payload_type: 'Unknown',
+        rssi: null,
+        snr: null,
+        decrypted: false,
+        decrypted_info: null,
+      };
+      mocks.api.getRecentPackets.mockResolvedValue([fetched]);
+
+      renderView();
+
+      fireEvent.change(screen.getByLabelText('History backfill window'), {
+        target: { value: String(24 * 60 * 60) },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Fetch' }));
+
+      await waitFor(() => expect(getRawPackets()).toHaveLength(1));
+      expect(mocks.toast.success).toHaveBeenCalled();
+    });
+
+    it('shows an error toast when the fetch fails', async () => {
+      mocks.api.getRecentPackets.mockRejectedValue(new Error('boom'));
+
+      renderView();
+      fireEvent.click(screen.getByRole('button', { name: 'Fetch' }));
+
+      await waitFor(() => expect(mocks.toast.error).toHaveBeenCalledWith('boom'));
+      expect(getRawPackets()).toHaveLength(0);
+    });
   });
 });

@@ -111,6 +111,91 @@ class TestGetRawPacket:
         }
 
 
+class TestListRecentPackets:
+    """Test GET /api/packets/recent (personal-fork addition, not upstream)."""
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_list_when_none_since_cutoff(self, test_db, client):
+        response = await client.get("/api/packets/recent?since=9999999999")
+
+        assert response.status_code == 200
+        assert response.json() == []
+
+    @pytest.mark.asyncio
+    async def test_excludes_packets_before_since(self, test_db, client):
+        await RawPacketRepository.create(b"\x01old", 1000)
+        await RawPacketRepository.create(b"\x02new", 2000)
+
+        response = await client.get("/api/packets/recent?since=1500")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["data"] == b"\x02new".hex()
+
+    @pytest.mark.asyncio
+    async def test_orders_oldest_first_and_synthesizes_negative_observation_id(
+        self, test_db, client
+    ):
+        first_id, _ = await RawPacketRepository.create(b"\x01first", 1000)
+        second_id, _ = await RawPacketRepository.create(b"\x02second", 2000)
+
+        response = await client.get("/api/packets/recent?since=0")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert [row["id"] for row in data] == [first_id, second_id]
+        assert [row["observation_id"] for row in data] == [-first_id, -second_id]
+        assert all(row["snr"] is None and row["rssi"] is None for row in data)
+
+    @pytest.mark.asyncio
+    async def test_includes_decrypted_info_for_linked_packets(self, test_db, client):
+        channel_key = "DEADBEEF" * 4
+        await ChannelRepository.upsert(key=channel_key, name="#ops", is_hashtag=False)
+        packet_id, _ = await RawPacketRepository.create(b"\x09\x00test-packet", 1700000000)
+        msg_id = await MessageRepository.create(
+            msg_type="CHAN",
+            text="Alice: hello",
+            conversation_key=channel_key,
+            sender_timestamp=1700000000,
+            received_at=1700000000,
+            sender_name="Alice",
+        )
+        assert msg_id is not None
+        await RawPacketRepository.mark_decrypted(packet_id, msg_id)
+
+        response = await client.get("/api/packets/recent?since=0")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["decrypted"] is True
+        assert data[0]["decrypted_info"]["sender"] == "Alice"
+
+    @pytest.mark.asyncio
+    async def test_respects_limit(self, test_db, client):
+        await _insert_raw_packets(5)
+
+        response = await client.get("/api/packets/recent?since=0&limit=2")
+
+        assert response.status_code == 200
+        assert len(response.json()) == 2
+
+    @pytest.mark.asyncio
+    async def test_rejects_missing_since(self, test_db, client):
+        response = await client.get("/api/packets/recent")
+
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_not_shadowed_by_packet_id_route(self, test_db, client):
+        """`/recent` must resolve to this endpoint, not the `/{packet_id}` route."""
+        response = await client.get("/api/packets/recent?since=0")
+
+        assert response.status_code == 200
+        assert isinstance(response.json(), list)
+
+
 class TestDecryptHistoricalPackets:
     """Test POST /api/packets/decrypt/historical."""
 

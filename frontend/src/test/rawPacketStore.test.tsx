@@ -6,6 +6,7 @@ import {
   clearRawPackets,
   getRawPacketStatsSession,
   getRawPackets,
+  mergeHistoricalRawPackets,
   recordRawPacket,
   resetRawPacketStore,
   seedRawPacketStore,
@@ -309,5 +310,62 @@ describe('rawPacketStore', () => {
 
     expect(getRawPackets()).toHaveLength(25);
     expect(mocks.messageList.mock.calls.length).toBe(rendersAfterMount);
+  });
+
+  /**
+   * Personal-fork addition (not upstream): backfills the buffer from
+   * `GET /packets/recent` (see api.getRecentPackets / RawPacketFeedView's
+   * "Load history" control), independent of the live WS stream.
+   */
+  describe('mergeHistoricalRawPackets', () => {
+    it('sorts the merged buffer into chronological order regardless of arrival order', () => {
+      recordRawPacket(createPacket({ id: 3, observation_id: 3, timestamp: 300 }));
+
+      mergeHistoricalRawPackets([
+        createPacket({ id: 1, observation_id: -1, timestamp: 100 }),
+        createPacket({ id: 2, observation_id: -2, timestamp: 200 }),
+      ]);
+
+      expect(getRawPackets().map((p) => p.id)).toEqual([1, 2, 3]);
+    });
+
+    it('drops historical rows that duplicate an already-buffered observation', () => {
+      recordRawPacket(createPacket({ id: 1, observation_id: 1, timestamp: 100 }));
+
+      mergeHistoricalRawPackets([createPacket({ id: 1, observation_id: 1, timestamp: 100 })]);
+
+      expect(getRawPackets()).toHaveLength(1);
+    });
+
+    it('caps the merged buffer at the requested size, keeping the newest packets', () => {
+      recordRawPacket(createPacket({ id: 5, observation_id: 5, timestamp: 500 }));
+
+      mergeHistoricalRawPackets(
+        [1, 2, 3, 4].map((i) => createPacket({ id: i, observation_id: -i, timestamp: i * 100 })),
+        3
+      );
+
+      expect(getRawPackets().map((p) => p.id)).toEqual([3, 4, 5]);
+    });
+
+    it('is a no-op for an empty batch', () => {
+      recordRawPacket(createPacket({ id: 1, observation_id: 1 }));
+
+      mergeHistoricalRawPackets([]);
+
+      expect(getRawPackets()).toHaveLength(1);
+    });
+
+    it('notifies subscribed views', () => {
+      function PacketCount() {
+        return <span data-testid="count">{useRawPackets().length}</span>;
+      }
+      render(<PacketCount />);
+      expect(screen.getByTestId('count').textContent).toBe('0');
+
+      act(() => mergeHistoricalRawPackets([createPacket({ id: 1, observation_id: -1 })]));
+
+      expect(screen.getByTestId('count').textContent).toBe('1');
+    });
   });
 });

@@ -16,6 +16,8 @@ import { MeshCoreDecoder, Utils } from '@michaelhart/meshcore-decoder';
 import { RawPacketList } from './RawPacketList';
 import { RawPacketInspectorDialog } from './RawPacketDetailModal';
 import { Button } from './ui/button';
+import { toast } from './ui/sonner';
+import { api } from '../api';
 import type { Channel, Contact, RawPacket } from '../types';
 import {
   KNOWN_PAYLOAD_TYPES,
@@ -28,7 +30,11 @@ import {
   type RawPacketStatsWindow,
 } from '../utils/rawPacketStats';
 import { createDecoderOptions } from '../utils/rawPacketInspector';
-import { useRawPacketStatsSession, useRawPackets } from '../stores/rawPacketStore';
+import {
+  mergeHistoricalRawPackets,
+  useRawPacketStatsSession,
+  useRawPackets,
+} from '../stores/rawPacketStore';
 import { getContactDisplayName } from '../utils/pubkey';
 import { cn } from '@/lib/utils';
 
@@ -221,6 +227,21 @@ const WINDOW_LABELS: Record<RawPacketStatsWindow, string> = {
   '30m': '30 min',
   session: 'Session',
 };
+
+// Personal-fork addition (not upstream): "load history" backfill window options.
+const HISTORY_LOAD_WINDOWS = [
+  { label: '5 min', seconds: 5 * 60 },
+  { label: '10 min', seconds: 10 * 60 },
+  { label: '30 min', seconds: 30 * 60 },
+  { label: '3 hours', seconds: 3 * 60 * 60 },
+  { label: '6 hours', seconds: 6 * 60 * 60 },
+  { label: '12 hours', seconds: 12 * 60 * 60 },
+  { label: '24 hours', seconds: 24 * 60 * 60 },
+  { label: '3 days', seconds: 3 * 24 * 60 * 60 },
+  { label: '1 week', seconds: 7 * 24 * 60 * 60 },
+] as const;
+
+const DEFAULT_HISTORY_LOAD_SECONDS: number = HISTORY_LOAD_WINDOWS[3].seconds; // 3 hours
 
 function formatTimestamp(timestampMs: number): string {
   return new Date(timestampMs).toLocaleString([], {
@@ -605,6 +626,25 @@ export function RawPacketFeedView({ contacts, channels }: RawPacketFeedViewProps
   const [autoScroll, setAutoScroll] = useState(true);
   // Raw-hex substring filter over the in-memory feed buffer (session-only).
   const [hexFilter, setHexFilter] = useState('');
+  // Personal-fork addition (not upstream): history backfill window + fetch state.
+  const [historyWindowSeconds, setHistoryWindowSeconds] = useState(DEFAULT_HISTORY_LOAD_SECONDS);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  const handleLoadHistory = async () => {
+    setHistoryLoading(true);
+    try {
+      const since = Math.floor(Date.now() / 1000) - historyWindowSeconds;
+      const historicalPackets = await api.getRecentPackets(since);
+      mergeHistoricalRawPackets(historicalPackets);
+      toast.success(
+        `Loaded ${historicalPackets.length.toLocaleString()} packet${historicalPackets.length === 1 ? '' : 's'} from history`
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to load packet history');
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
 
   const decoderOptions = useMemo(() => createDecoderOptions(channels), [channels]);
 
@@ -705,7 +745,32 @@ export function RawPacketFeedView({ contacts, channels }: RawPacketFeedViewProps
               Collecting stats since {formatTimestamp(rawPacketStatsSession.sessionStartedAt)}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span className="hidden sm:inline">Load history</span>
+              <select
+                value={historyWindowSeconds}
+                onChange={(event) => setHistoryWindowSeconds(Number(event.target.value))}
+                className="rounded-md border border-input bg-background px-2 py-1 text-xs"
+                aria-label="History backfill window"
+                disabled={historyLoading}
+              >
+                {HISTORY_LOAD_WINDOWS.map((option) => (
+                  <option key={option.seconds} value={option.seconds}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleLoadHistory}
+              disabled={historyLoading}
+            >
+              {historyLoading ? 'Loading…' : 'Fetch'}
+            </Button>
             <Button
               type="button"
               variant="outline"

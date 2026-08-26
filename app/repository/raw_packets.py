@@ -179,6 +179,24 @@ class RawPacketRepository:
         return (row["id"], bytes(row["data"]), row["timestamp"], row["message_id"])
 
     @staticmethod
+    async def list_recent(since_ts: int, limit: int) -> list[tuple[int, bytes, int, int | None]]:
+        """Rows at or after since_ts, most recent first, capped at limit.
+
+        Personal-fork addition (not upstream): backs the packet-feed history
+        backfill endpoint (`GET /packets/recent`).
+        """
+        async with db.readonly() as conn:
+            async with conn.execute(
+                "SELECT id, data, timestamp, message_id FROM raw_packets "
+                "WHERE timestamp >= ? ORDER BY timestamp DESC LIMIT ?",
+                (since_ts, limit),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [
+            (row["id"], bytes(row["data"]), row["timestamp"], row["message_id"]) for row in rows
+        ]
+
+    @staticmethod
     async def prune_old_undecrypted(max_age_days: int) -> int:
         """Delete undecrypted packets older than max_age_days. Returns count deleted."""
         cutoff = int(time.time()) - (max_age_days * 86400)

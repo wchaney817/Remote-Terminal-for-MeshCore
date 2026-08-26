@@ -298,6 +298,7 @@ Web Push is a standalone subsystem in `app/push/`, separate from the fanout modu
 ### Packets
 - `GET /packets/undecrypted/count`
 - `POST /packets/region-backfill` — re-resolve region scope for stored channel messages that still have a retained raw packet (region is otherwise only tagged at ingest); returns `{scanned, scoped, named}`
+- `GET /packets/recent?since=<unix_ts>&limit=<n>` — **personal-fork addition, not upstream.** Backfills the live packet-feed UI from persisted history on page load; `RawPacketBroadcast` rows oldest-first, `snr`/`rssi` always `null` (raw packet storage never retained per-arrival signal quality), synthetic negative `observation_id`. Registered before `/{packet_id}` so it isn't swallowed by that route.
 - `GET /packets/{packet_id}` — fetch one stored raw packet by row ID for on-demand inspection
 - `POST /packets/decrypt/historical`
 - `POST /packets/maintenance`

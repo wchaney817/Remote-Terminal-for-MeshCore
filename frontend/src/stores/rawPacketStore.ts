@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 
 import type { RawPacket } from '../types';
-import { appendRawPacketUnique } from '../utils/rawPacketIdentity';
+import { appendRawPacketUnique, getRawPacketObservationKey } from '../utils/rawPacketIdentity';
 import {
   MAX_RAW_PACKET_STATS_OBSERVATIONS,
   summarizeRawPacketForStats,
@@ -87,6 +87,42 @@ export function recordRawPacket(packet: RawPacket, maxPackets: number = MAX_RAW_
 
   packets = nextPackets;
   statsSession = nextStats;
+  emit();
+}
+
+/**
+ * Merge a batch of history-backfilled packets into the buffer, deduping against
+ * what's already there and re-sorting by timestamp so the buffer stays in the
+ * chronological (oldest-first) order the feed view assumes, regardless of
+ * whether the backfill fetch resolves before or after live packets arrive.
+ *
+ * Personal-fork addition (not upstream): pairs with `GET /packets/recent`.
+ * Session stats are intentionally left untouched — they describe live-observed
+ * traffic, not backfilled history.
+ */
+export function mergeHistoricalRawPackets(
+  historicalPackets: RawPacket[],
+  maxPackets: number = MAX_RAW_PACKETS
+): void {
+  if (historicalPackets.length === 0) {
+    return;
+  }
+
+  const seen = new Set(packets.map((packet) => getRawPacketObservationKey(packet)));
+  const fresh = historicalPackets.filter((packet) => {
+    const key = getRawPacketObservationKey(packet);
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+  if (fresh.length === 0) {
+    return;
+  }
+
+  const merged = [...packets, ...fresh].sort((a, b) => a.timestamp - b.timestamp);
+  packets = merged.length > maxPackets ? merged.slice(-maxPackets) : merged;
   emit();
 }
 
