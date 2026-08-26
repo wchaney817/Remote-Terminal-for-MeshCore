@@ -99,6 +99,15 @@ export function recordRawPacket(packet: RawPacket, maxPackets: number = MAX_RAW_
  * Personal-fork addition (not upstream): pairs with `GET /packets/recent`.
  * Session stats are intentionally left untouched — they describe live-observed
  * traffic, not backfilled history.
+ *
+ * Trims from the *pre-existing* buffer to make room, not from the freshly
+ * fetched batch. A naive "keep the newest maxPackets overall" cap would nearly
+ * always evict most of a historical fetch immediately, in this same call,
+ * before any view ever renders it — a backfill by definition pulls older data,
+ * and ambient live traffic is by definition newer, so a straight timestamp-sort
+ * cap silently discards exactly the packets you explicitly asked to load
+ * (confirmed bug: Channel Finder's queue only reflects what happened to
+ * survive this cut, not the full fetched batch).
  */
 export function mergeHistoricalRawPackets(
   historicalPackets: RawPacket[],
@@ -121,8 +130,20 @@ export function mergeHistoricalRawPackets(
     return;
   }
 
-  const merged = [...packets, ...fresh].sort((a, b) => a.timestamp - b.timestamp);
-  packets = merged.length > maxPackets ? merged.slice(-maxPackets) : merged;
+  // Assumes fresh.length <= maxPackets (true today: no caller requests more than
+  // MAX_RAW_PACKETS at once) — a larger fetch would leave the buffer over cap,
+  // since fresh itself is never trimmed here.
+  const roomForExisting = Math.max(0, maxPackets - fresh.length);
+  // `slice(-0)` is `slice(0)` (the whole array) in JS, not "keep nothing" — guard
+  // the zero case explicitly rather than relying on slice's negative-index math.
+  const keptExisting =
+    roomForExisting === 0
+      ? []
+      : packets.length > roomForExisting
+        ? packets.slice(-roomForExisting)
+        : packets;
+
+  packets = [...keptExisting, ...fresh].sort((a, b) => a.timestamp - b.timestamp);
   emit();
 }
 

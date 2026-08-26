@@ -133,8 +133,26 @@ export function CrackerPanel({
     [packets]
   );
 
+  // Personal-fork fix (not upstream): a cheap, order-independent fingerprint of
+  // *which* packets are undecrypted, not just how many. `undecryptedGroupText`
+  // gets a new array identity on every unrelated packet arrival, so the effect
+  // below can't depend on it directly without re-running constantly — but
+  // depending on `.length` (the original approach) missed real changes whenever
+  // the set could both gain and lose members between renders (e.g. a batch
+  // "Load history" fetch landing while other packets are simultaneously trimmed
+  // from the buffer): the count can land unchanged, or even land on a value
+  // it already passed through before, while the actual ids differ completely,
+  // silently leaving freshly fetched historical packets out of the queue.
+  const undecryptedGroupTextIdsKey = useMemo(
+    () =>
+      undecryptedGroupText
+        .map((p) => p.id)
+        .sort((a, b) => a - b)
+        .join(','),
+    [undecryptedGroupText]
+  );
+
   // Update queue when packets change (deduplicated by payload)
-  // Note: We intentionally depend on .length only to avoid re-running on every array identity change
   useEffect(() => {
     let newSkipped = 0;
 
@@ -178,7 +196,7 @@ export function CrackerPanel({
       setSkippedDuplicates((prev) => prev + newSkipped);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [undecryptedGroupText.length]);
+  }, [undecryptedGroupTextIdsKey]);
 
   // Keep refs in sync with state
   useEffect(() => {

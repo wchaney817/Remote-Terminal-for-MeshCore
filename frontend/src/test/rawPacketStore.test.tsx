@@ -337,15 +337,55 @@ describe('rawPacketStore', () => {
       expect(getRawPackets()).toHaveLength(1);
     });
 
-    it('caps the merged buffer at the requested size, keeping the newest packets', () => {
-      recordRawPacket(createPacket({ id: 5, observation_id: 5, timestamp: 500 }));
+    it('trims the pre-existing buffer to make room, keeping the full fetched batch', () => {
+      recordRawPacket(createPacket({ id: 10, observation_id: 10, timestamp: 1000 }));
+      recordRawPacket(createPacket({ id: 20, observation_id: 20, timestamp: 2000 }));
+      recordRawPacket(createPacket({ id: 30, observation_id: 30, timestamp: 3000 }));
 
       mergeHistoricalRawPackets(
-        [1, 2, 3, 4].map((i) => createPacket({ id: i, observation_id: -i, timestamp: i * 100 })),
-        3
+        [1, 2].map((i) => createPacket({ id: i, observation_id: -i, timestamp: i * 100 })),
+        4
       );
 
-      expect(getRawPackets().map((p) => p.id)).toEqual([3, 4, 5]);
+      // Room for existing = 4 - 2 fresh = 2, so only the newest 2 of the 3
+      // pre-existing survive; both fresh (historical) packets are kept in full.
+      expect(getRawPackets().map((p) => p.id)).toEqual([1, 2, 20, 30]);
+    });
+
+    it('regression: does not evict an entire historical fetch older than a full live buffer', () => {
+      // This is the exact bug reported in production: loading a batch of older
+      // GroupText/TextMessage history when the buffer already holds newer live
+      // traffic at cap used to discard almost the whole fetch in this same call,
+      // before any view ever rendered it (Channel Finder's queue only ever saw
+      // whatever few packets happened to survive the cut).
+      for (let i = 0; i < 5; i++) {
+        recordRawPacket(
+          createPacket({ id: 100 + i, observation_id: 100 + i, timestamp: 9000 + i })
+        );
+      }
+
+      const historicalBatch = Array.from({ length: 3 }, (_, i) =>
+        createPacket({ id: i, observation_id: -(i + 1), timestamp: 100 + i })
+      );
+      mergeHistoricalRawPackets(historicalBatch, 5);
+
+      const idsAfterMerge = getRawPackets().map((p) => p.id);
+      for (const historicalPacket of historicalBatch) {
+        expect(idsAfterMerge).toContain(historicalPacket.id);
+      }
+    });
+
+    it('replaces the entire pre-existing buffer when the fetch alone fills the cap (slice(-0) edge case)', () => {
+      recordRawPacket(createPacket({ id: 999, observation_id: 999, timestamp: 500 }));
+
+      const historicalBatch = [1, 2, 3].map((i) =>
+        createPacket({ id: i, observation_id: -i, timestamp: i * 100 })
+      );
+      mergeHistoricalRawPackets(historicalBatch, 3);
+
+      // roomForExisting is exactly 0 here; `slice(-0)` in JS returns the whole
+      // array rather than an empty one, so this guards that off-by-zero bug.
+      expect(getRawPackets().map((p) => p.id)).toEqual([1, 2, 3]);
     });
 
     it('is a no-op for an empty batch', () => {
