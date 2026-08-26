@@ -109,6 +109,68 @@ class TestGetRawPacket:
             "sender_timestamp": 1700000000,
             "message": "Alice: hello",
         }
+        assert data["rssi"] is None
+        assert data["snr"] is None
+
+    @pytest.mark.asyncio
+    async def test_recovers_rssi_snr_from_linked_message_first_path(self, test_db, client):
+        """Personal-fork addition (not upstream): paths[0] carries this exact packet's signal."""
+        channel_key = "DEADBEEF" * 4
+        await ChannelRepository.upsert(key=channel_key, name="#ops", is_hashtag=False)
+        packet_id, _ = await RawPacketRepository.create(b"\x09\x00test-packet", 1700000000)
+        msg_id = await MessageRepository.create(
+            msg_type="CHAN",
+            text="Alice: hello",
+            conversation_key=channel_key,
+            sender_timestamp=1700000000,
+            received_at=1700000000,
+            sender_name="Alice",
+            path="aabbcc",
+            path_len=3,
+            rssi=-45,
+            snr=12.0,
+        )
+        assert msg_id is not None
+        await RawPacketRepository.mark_decrypted(packet_id, msg_id)
+
+        response = await client.get(f"/api/packets/{packet_id}")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["rssi"] == -45
+        assert data["snr"] == 12.0
+
+    @pytest.mark.asyncio
+    async def test_ignores_rssi_snr_from_later_repeat_paths(self, test_db, client):
+        """A repeat/echo of the same payload via another route lands in paths[1+], not
+        paths[0] — it describes a different reception, not this raw packet, so it must
+        not override the original signal reading."""
+        channel_key = "DEADBEEF" * 4
+        await ChannelRepository.upsert(key=channel_key, name="#ops", is_hashtag=False)
+        packet_id, _ = await RawPacketRepository.create(b"\x09\x00test-packet", 1700000000)
+        msg_id = await MessageRepository.create(
+            msg_type="CHAN",
+            text="Alice: hello",
+            conversation_key=channel_key,
+            sender_timestamp=1700000000,
+            received_at=1700000000,
+            sender_name="Alice",
+            path="aabbcc",
+            rssi=-45,
+            snr=12.0,
+        )
+        assert msg_id is not None
+        await RawPacketRepository.mark_decrypted(packet_id, msg_id)
+        await MessageRepository.add_path(
+            msg_id, path="ddeeff", received_at=1700000010, rssi=-90, snr=1.0
+        )
+
+        response = await client.get(f"/api/packets/{packet_id}")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["rssi"] == -45
+        assert data["snr"] == 12.0
 
 
 class TestListRecentPackets:
@@ -171,6 +233,33 @@ class TestListRecentPackets:
         assert len(data) == 1
         assert data[0]["decrypted"] is True
         assert data[0]["decrypted_info"]["sender"] == "Alice"
+
+    @pytest.mark.asyncio
+    async def test_recovers_rssi_snr_from_linked_message_first_path(self, test_db, client):
+        channel_key = "DEADBEEF" * 4
+        await ChannelRepository.upsert(key=channel_key, name="#ops", is_hashtag=False)
+        packet_id, _ = await RawPacketRepository.create(b"\x09\x00test-packet", 1700000000)
+        msg_id = await MessageRepository.create(
+            msg_type="CHAN",
+            text="Alice: hello",
+            conversation_key=channel_key,
+            sender_timestamp=1700000000,
+            received_at=1700000000,
+            sender_name="Alice",
+            path="aabbcc",
+            rssi=-45,
+            snr=12.0,
+        )
+        assert msg_id is not None
+        await RawPacketRepository.mark_decrypted(packet_id, msg_id)
+
+        response = await client.get("/api/packets/recent?since=0")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["rssi"] == -45
+        assert data[0]["snr"] == 12.0
 
     @pytest.mark.asyncio
     async def test_respects_limit(self, test_db, client):

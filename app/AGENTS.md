@@ -298,8 +298,8 @@ Web Push is a standalone subsystem in `app/push/`, separate from the fanout modu
 ### Packets
 - `GET /packets/undecrypted/count`
 - `POST /packets/region-backfill` — re-resolve region scope for stored channel messages that still have a retained raw packet (region is otherwise only tagged at ingest); returns `{scanned, scoped, named}`
-- `GET /packets/recent?since=<unix_ts>&limit=<n>` — **personal-fork addition, not upstream.** Backfills the live packet-feed UI from persisted history on page load; `RawPacketBroadcast` rows oldest-first, `snr`/`rssi` always `null` (raw packet storage never retained per-arrival signal quality), synthetic negative `observation_id`. Registered before `/{packet_id}` so it isn't swallowed by that route.
-- `GET /packets/{packet_id}` — fetch one stored raw packet by row ID for on-demand inspection
+- `GET /packets/recent?since=<unix_ts>&limit=<n>` — **personal-fork addition, not upstream.** Backfills the live packet-feed UI from persisted history on page load; `RawPacketBroadcast` rows oldest-first, synthetic negative `observation_id`. Registered before `/{packet_id}` so it isn't swallowed by that route.
+- `GET /packets/{packet_id}` — fetch one stored raw packet by row ID for on-demand inspection. `snr`/`rssi` (both endpoints, via `_resolve_packet_extras`) are recovered from the linked message's `paths[0]` when the packet decrypted into one — raw packet storage itself never retains per-arrival signal quality, only `messages.paths` does, and only `paths[0]` (written atomically with the message from this exact packet) is trustworthy; later entries are repeat/echo arrivals via other routes. Undecrypted packets (ADVERT, ACK, PATH, or channel/DM traffic without a key) always come back with both fields `null`.
 - `POST /packets/decrypt/historical`
 - `POST /packets/maintenance`
 

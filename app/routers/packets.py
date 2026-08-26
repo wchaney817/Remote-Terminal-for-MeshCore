@@ -1,6 +1,7 @@
 import logging
 from hashlib import sha256
 from sqlite3 import OperationalError
+from typing import NamedTuple
 
 import aiosqlite
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Response, status
@@ -142,10 +143,17 @@ async def backfill_regions() -> dict:
     return await backfill_message_regions(known_regions)
 
 
-async def _resolve_packet_extras(
-    packet_data: bytes, message_id: int | None
-) -> tuple[str, int | None, str | None, RawPacketDecryptedInfo | None]:
-    """Shared payload-type/region/decrypted-info resolution for one raw packet row.
+class _PacketExtras(NamedTuple):
+    payload_type_name: str
+    transport_code: int | None
+    region: str | None
+    decrypted_info: RawPacketDecryptedInfo | None
+    rssi: int | None
+    snr: float | None
+
+
+async def _resolve_packet_extras(packet_data: bytes, message_id: int | None) -> _PacketExtras:
+    """Shared payload-type/region/decrypted-info/signal resolution for one raw packet row.
 
     Used by both the single-packet detail endpoint and the history backfill list
     endpoint so they stay consistent.
@@ -169,6 +177,8 @@ async def _resolve_packet_extras(
         )
 
     decrypted_info: RawPacketDecryptedInfo | None = None
+    rssi: int | None = None
+    snr: float | None = None
     if message_id is not None:
         message = await MessageRepository.get_by_id(message_id)
         if message is not None:
@@ -190,7 +200,15 @@ async def _resolve_packet_extras(
                     message=message.text,
                 )
 
-    return payload_type_name, transport_code, region, decrypted_info
+            # paths[0] is written atomically with the message row from this exact
+            # packet's rssi/snr (see MessageRepository.create); later entries are
+            # repeat/echo arrivals of the same payload via other routes and don't
+            # describe this raw packet, so only the first entry is usable here.
+            if message.paths:
+                rssi = message.paths[0].rssi
+                snr = message.paths[0].snr
+
+    return _PacketExtras(payload_type_name, transport_code, region, decrypted_info, rssi, snr)
 
 
 @router.get("/recent", response_model=list[RawPacketBroadcast])
@@ -203,32 +221,33 @@ async def list_recent_packets(
     """Backfill the live packet feed from persisted history (personal-fork addition, not upstream).
 
     Returns up to `limit` packets at/after `since`, oldest first, so callers can feed
-    them straight into a chronological live-feed buffer. Raw packet storage never
-    retained per-arrival RSSI/SNR (only the live WS broadcast computes those), so
-    `snr`/`rssi` are always null here. Historical rows get a synthetic negative
-    `observation_id` — real per-arrival ids from the live WS stream start at 1 and
-    only increase for the life of the process, so negative ids can't collide.
+    them straight into a chronological live-feed buffer. `snr`/`rssi` are recovered
+    from the linked message's first path entry when the packet decrypted into one
+    (see `_resolve_packet_extras`); raw packet storage itself never retained
+    per-arrival signal quality, so undecrypted packets (ADVERT, ACK, PATH, or
+    channel/DM traffic without a key) always come back with `snr`/`rssi` null.
+    Historical rows get a synthetic negative `observation_id` — real per-arrival ids
+    from the live WS stream start at 1 and only increase for the life of the
+    process, so negative ids can't collide.
     """
     rows = await RawPacketRepository.list_recent(since, limit)
 
     packets: list[RawPacketBroadcast] = []
     for stored_packet_id, packet_data, packet_timestamp, message_id in rows:
-        payload_type_name, transport_code, region, decrypted_info = await _resolve_packet_extras(
-            packet_data, message_id
-        )
+        extras = await _resolve_packet_extras(packet_data, message_id)
         packets.append(
             RawPacketBroadcast(
                 id=stored_packet_id,
                 observation_id=-stored_packet_id,
                 timestamp=packet_timestamp,
                 data=packet_data.hex(),
-                payload_type=payload_type_name,
-                snr=None,
-                rssi=None,
+                payload_type=extras.payload_type_name,
+                snr=extras.snr,
+                rssi=extras.rssi,
                 decrypted=message_id is not None,
-                decrypted_info=decrypted_info,
-                transport_code=transport_code,
-                region=region,
+                decrypted_info=extras.decrypted_info,
+                transport_code=extras.transport_code,
+                region=extras.region,
             )
         )
 
@@ -244,19 +263,19 @@ async def get_raw_packet(packet_id: int) -> RawPacketDetail:
         raise HTTPException(status_code=404, detail="Raw packet not found")
 
     stored_packet_id, packet_data, packet_timestamp, message_id = packet_row
-    payload_type_name, transport_code, region, decrypted_info = await _resolve_packet_extras(
-        packet_data, message_id
-    )
+    extras = await _resolve_packet_extras(packet_data, message_id)
 
     return RawPacketDetail(
         id=stored_packet_id,
         timestamp=packet_timestamp,
         data=packet_data.hex(),
-        payload_type=payload_type_name,
+        payload_type=extras.payload_type_name,
+        snr=extras.snr,
+        rssi=extras.rssi,
         decrypted=message_id is not None,
-        decrypted_info=decrypted_info,
-        transport_code=transport_code,
-        region=region,
+        decrypted_info=extras.decrypted_info,
+        transport_code=extras.transport_code,
+        region=extras.region,
     )
 
 
