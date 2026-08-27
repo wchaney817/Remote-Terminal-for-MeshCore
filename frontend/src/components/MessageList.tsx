@@ -21,6 +21,7 @@ import {
   parseReaction,
   splitReplyMention,
 } from '../utils/meshcoreOpenPayloads';
+import { osmUrlForCoords, parseWireTag } from '../utils/meshMapperPayloads';
 import { useRichPayloads } from '../contexts/RichPayloadContext';
 import { usePathHopWidth } from '../contexts/PathHopWidthContext';
 import { formatHopCounts, formatPathHopWidths, type SenderInfo } from '../utils/pathUtils';
@@ -98,6 +99,31 @@ function ReactionPayload({ emoji }: { emoji: string }) {
   );
 }
 
+// Renders a MeshMapper wardriving wire tag. The tag body is an opaque,
+// encrypted session token (not decodable here — see meshMapperPayloads.ts);
+// only the optional broadcast coordinates are shown when present.
+function WireTagPayload({ lat, lon }: { lat: number | null; lon: number | null }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className="text-base leading-none" aria-hidden="true">
+        📍
+      </span>
+      {lat !== null && lon !== null ? (
+        <a
+          href={osmUrlForCoords(lat, lon)}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs text-primary underline underline-offset-2"
+        >
+          Wardrive ping · {lat.toFixed(5)}, {lon.toFixed(5)}
+        </a>
+      ) : (
+        <span className="text-xs text-muted-foreground italic">Wardrive ping</span>
+      )}
+    </span>
+  );
+}
+
 // Render a bare payload body (no reply prefix) into its rich node, or null.
 function renderPayloadBody(body: string): ReactNode | null {
   const gifId = parseGif(body);
@@ -111,25 +137,35 @@ function renderPayloadBody(body: string): ReactNode | null {
   return null;
 }
 
-// Recognize a MeshCore Open payload and render it. Handles both a whole-message
-// payload ("g:<id>") and a reply-prefixed one ("@[Name] g:<id>") — the form
-// meshcore-open sends when a GIF/reaction is a reply, which otherwise renders as
-// raw text (issue #291). Returns null when the content is not a recognized
-// payload, so the caller renders normally.
-function renderMeshcoreOpenPayload(
+// Render a bare MeshMapper wire-tag body (no reply prefix), or null.
+function renderWireTagBody(body: string): ReactNode | null {
+  const wireTag = parseWireTag(body);
+  if (wireTag) {
+    return <WireTagPayload lat={wireTag.lat} lon={wireTag.lon} />;
+  }
+  return null;
+}
+
+// Recognize a rich-chat payload (given a bare-body renderer) and render it.
+// Handles both a whole-message payload ("g:<id>") and a reply-prefixed one
+// ("@[Name] g:<id>") — the form meshcore-open sends when a GIF/reaction is a
+// reply, which otherwise renders as raw text (issue #291). Returns null when
+// the content is not a recognized payload, so the caller renders normally.
+function renderRichPayloadWithReplyMention(
   content: string,
+  renderBody: (body: string) => ReactNode | null,
   radioName?: string,
   onChannelReferenceClick?: (channelName: string) => void
 ): ReactNode | null {
-  const whole = renderPayloadBody(content);
+  const whole = renderBody(content);
   if (whole) return whole;
 
   const split = splitReplyMention(content);
   if (split) {
-    const body = renderPayloadBody(split.body);
+    const body = renderBody(split.body);
     if (body) {
       // Preserve the reply mention (rendered as a normal @[Name] mention) so the
-      // GIF/reaction still reads as a reply to that person.
+      // payload still reads as a reply to that person.
       return (
         <span className="inline-flex flex-wrap items-center gap-1.5">
           {renderTextWithMentions(split.mention, radioName, onChannelReferenceClick)}
@@ -139,6 +175,37 @@ function renderMeshcoreOpenPayload(
     }
   }
   return null;
+}
+
+function renderMeshcoreOpenPayload(
+  content: string,
+  radioName?: string,
+  onChannelReferenceClick?: (channelName: string) => void
+): ReactNode | null {
+  return renderRichPayloadWithReplyMention(
+    content,
+    renderPayloadBody,
+    radioName,
+    onChannelReferenceClick
+  );
+}
+
+// Recognize a MeshMapper wardriving wire tag ("MM:<tag>[:lat,lon]"), unlike
+// the MeshCore Open payloads above this is not gated behind the "render rich
+// payloads" setting: there's no external network call or privacy tradeoff to
+// opt into, it's just a nicer label for an otherwise-opaque tag (see
+// meshMapperPayloads.ts).
+function renderMeshMapperPayload(
+  content: string,
+  radioName?: string,
+  onChannelReferenceClick?: (channelName: string) => void
+): ReactNode | null {
+  return renderRichPayloadWithReplyMention(
+    content,
+    renderWireTagBody,
+    radioName,
+    onChannelReferenceClick
+  );
 }
 
 /**
@@ -1315,8 +1382,13 @@ export function MessageList({
                       </div>
                     )}
                     <div className="break-words whitespace-pre-wrap">
-                      {(renderRichPayloads &&
-                        renderMeshcoreOpenPayload(content, radioName, onChannelReferenceClick)) ||
+                      {renderMeshMapperPayload(content, radioName, onChannelReferenceClick) ||
+                        (renderRichPayloads &&
+                          renderMeshcoreOpenPayload(
+                            content,
+                            radioName,
+                            onChannelReferenceClick
+                          )) ||
                         content.split('\n').map((line, i, arr) => (
                           <span key={i}>
                             {renderTextWithMentions(line, radioName, onChannelReferenceClick)}
