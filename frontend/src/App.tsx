@@ -96,6 +96,7 @@ export function App() {
     showSettings,
     settingsSection,
     sidebarOpen,
+    desktopSidebarCollapsed,
     showCracker,
     crackerRunning,
     localLabel,
@@ -104,6 +105,7 @@ export function App() {
     showPathHopWidth,
     setSettingsSection,
     setSidebarOpen,
+    handleToggleDesktopSidebarCollapsed,
     setCrackerRunning,
     setLocalLabel,
     setDistanceUnit,
@@ -779,9 +781,11 @@ export function App() {
             showSettings={showSettings}
             settingsSection={settingsSection}
             sidebarOpen={sidebarOpen}
+            desktopSidebarCollapsed={desktopSidebarCollapsed}
             showCracker={showCracker}
             onSettingsSectionChange={setSettingsSection}
             onSidebarOpenChange={setSidebarOpen}
+            onToggleDesktopSidebarCollapsed={handleToggleDesktopSidebarCollapsed}
             onCrackerRunningChange={setCrackerRunning}
             onToggleSettingsView={handleToggleSettingsView}
             onCloseSettingsView={handleCloseSettingsView}

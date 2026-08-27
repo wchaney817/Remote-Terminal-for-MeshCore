@@ -57,10 +57,12 @@ interface AppShellProps {
   showSettings: boolean;
   settingsSection: SettingsSection;
   sidebarOpen: boolean;
+  desktopSidebarCollapsed: boolean;
   showCracker: boolean;
   disabledSettingsSections?: SettingsSection[];
   onSettingsSectionChange: (section: SettingsSection) => void;
   onSidebarOpenChange: (open: boolean) => void;
+  onToggleDesktopSidebarCollapsed: () => void;
   onCrackerRunningChange: (running: boolean) => void;
   onToggleSettingsView: () => void;
   onCloseSettingsView: () => void;
@@ -90,10 +92,12 @@ export function AppShell({
   showSettings,
   settingsSection,
   sidebarOpen,
+  desktopSidebarCollapsed,
   showCracker,
   disabledSettingsSections = [],
   onSettingsSectionChange,
   onSidebarOpenChange,
+  onToggleDesktopSidebarCollapsed,
   onCrackerRunningChange,
   onToggleSettingsView,
   onCloseSettingsView,
@@ -247,11 +251,20 @@ export function AppShell({
         settingsMode={showSettings}
         onSettingsClick={onToggleSettingsView}
         onMenuClick={showSettings ? undefined : () => onSidebarOpenChange(true)}
+        desktopSidebarCollapsed={desktopSidebarCollapsed}
+        onToggleDesktopSidebar={showSettings ? undefined : onToggleDesktopSidebarCollapsed}
       />
       <div data-toast-anchor="statusbar" aria-hidden="true" />
 
       <div className="flex flex-1 overflow-hidden">
-        <div className="hidden md:block min-h-0 overflow-hidden">{activeSidebarContent}</div>
+        <div
+          className={cn(
+            'min-h-0 overflow-hidden',
+            desktopSidebarCollapsed ? 'hidden' : 'hidden md:block'
+          )}
+        >
+          {activeSidebarContent}
+        </div>
 
         <Sheet open={sidebarOpen} onOpenChange={onSidebarOpenChange}>
           <SheetContent

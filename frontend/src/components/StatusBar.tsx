@@ -6,6 +6,8 @@ import {
   BatteryWarning,
   Menu,
   Moon,
+  PanelLeftClose,
+  PanelLeftOpen,
   Sun,
 } from 'lucide-react';
 import type { HealthStatus, RadioConfig } from '../types';
@@ -35,6 +37,8 @@ interface StatusBarProps {
   settingsMode?: boolean;
   onSettingsClick: () => void;
   onMenuClick?: () => void;
+  desktopSidebarCollapsed?: boolean;
+  onToggleDesktopSidebar?: () => void;
 }
 
 export function StatusBar({
@@ -43,6 +47,8 @@ export function StatusBar({
   settingsMode = false,
   onSettingsClick,
   onMenuClick,
+  desktopSidebarCollapsed = false,
+  onToggleDesktopSidebar,
 }: StatusBarProps) {
   const [showBatteryPercent, setShowBatteryPercent] = useState(getShowBatteryPercent);
   const [showBatteryVoltage, setShowBatteryVoltage] = useState(getShowBatteryVoltage);
@@ -192,6 +198,22 @@ export function StatusBar({
           aria-label="Open menu"
         >
           <Menu className="h-4 w-4" />
+        </button>
+      )}
+
+      {/* Desktop sidebar collapse toggle - only visible at md+ */}
+      {onToggleDesktopSidebar && (
+        <button
+          onClick={onToggleDesktopSidebar}
+          className="hidden md:inline-flex p-0.5 bg-transparent border-none text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+          title={desktopSidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
+          aria-label={desktopSidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
+        >
+          {desktopSidebarCollapsed ? (
+            <PanelLeftOpen className="h-4 w-4" />
+          ) : (
+            <PanelLeftClose className="h-4 w-4" />
+          )}
         </button>
       )}
 
