@@ -1,4 +1,5 @@
 import {
+  forwardRef,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -339,49 +340,38 @@ function ReactionBadges({ groups }: { groups: MeshcoreOneReactionGroup[] }) {
 // table's index encoding, so there's no ordering constraint here.
 const QUICK_REACT_EMOJIS = ['👍', '❤️', '😂', '🎉', '👏', '🔥'];
 
+/** How long a press-and-hold on a message bubble must last to open the reaction popup. */
+const LONG_PRESS_MS = 1000;
+
 // The react-to-message control: a small trigger that expands into a row of
 // quick-emoji buttons. Sends in MeshCore One's format (see
 // buildMeshcoreOneReactionText) — the only reaction format we can correctly
 // produce a hash for.
-function ReactButton({
-  open,
-  onToggle,
-  onPick,
-}: {
-  open: boolean;
-  onToggle: () => void;
-  onPick: (emoji: string) => void;
-}) {
-  return (
-    <span className="mt-1 inline-flex items-center gap-1">
-      <button
-        type="button"
-        className="rounded px-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
-        onClick={onToggle}
-        aria-label={open ? 'Cancel react' : 'React to this message'}
-        aria-expanded={open}
-        title="React"
+// No persistent trigger — opened by long-pressing the message bubble (see
+// startLongPress/cancelLongPress) and closed by clicking/tapping anywhere
+// outside it (see the reactingMessageId effect below).
+const ReactionPopup = forwardRef<HTMLSpanElement, { onPick: (emoji: string) => void }>(
+  function ReactionPopup({ onPick }, ref) {
+    return (
+      <span
+        ref={ref}
+        className="mt-1 inline-flex items-center gap-1 rounded-full border border-border bg-card px-1.5 py-0.5 shadow-sm"
       >
-        {open ? '✕' : '☺+'}
-      </button>
-      {open && (
-        <span className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-1.5 py-0.5 shadow-sm">
-          {QUICK_REACT_EMOJIS.map((emoji) => (
-            <button
-              key={emoji}
-              type="button"
-              className="text-base leading-none transition-transform hover:scale-125"
-              onClick={() => onPick(emoji)}
-              aria-label={`React with ${emoji}`}
-            >
-              {emoji}
-            </button>
-          ))}
-        </span>
-      )}
-    </span>
-  );
-}
+        {QUICK_REACT_EMOJIS.map((emoji) => (
+          <button
+            key={emoji}
+            type="button"
+            className="text-base leading-none transition-transform hover:scale-125"
+            onClick={() => onPick(emoji)}
+            aria-label={`React with ${emoji}`}
+          >
+            {emoji}
+          </button>
+        ))}
+      </span>
+    );
+  }
+);
 
 // --- MeshCore One reply-with-quote ---
 
@@ -720,8 +710,50 @@ export function MessageList({
     isOutgoingChan?: boolean;
   } | null>(null);
   const [resendableIds, setResendableIds] = useState<Set<number>>(new Set());
-  // Id of the message whose quick-react emoji row is currently open (at most one at a time).
+  // Id of the message whose quick-react emoji popup is currently open (at most
+  // one at a time) — opened by long-pressing a message bubble, closed by
+  // clicking/tapping anywhere outside the popup.
   const [reactingMessageId, setReactingMessageId] = useState<number | null>(null);
+  const reactionPopupRef = useRef<HTMLSpanElement | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cancelLongPress = useCallback(() => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }, []);
+
+  const startLongPress = useCallback(
+    (messageId: number) => {
+      cancelLongPress();
+      longPressTimerRef.current = setTimeout(() => {
+        longPressTimerRef.current = null;
+        setReactingMessageId(messageId);
+      }, LONG_PRESS_MS);
+    },
+    [cancelLongPress]
+  );
+
+  // Close the popup on a click/tap anywhere outside it. Uses mousedown/
+  // touchstart (not click) so the mouseup that ends the long-press itself —
+  // which lands on the bubble that opened the popup, now containing it —
+  // doesn't immediately close what it just opened.
+  useEffect(() => {
+    if (reactingMessageId === null) return;
+    const handlePointerDown = (e: Event) => {
+      if (reactionPopupRef.current && !reactionPopupRef.current.contains(e.target as Node)) {
+        setReactingMessageId(null);
+      }
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('touchstart', handlePointerDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('touchstart', handlePointerDown);
+    };
+  }, [reactingMessageId]);
+
   const handleReact = useCallback(
     async (targetSenderName: string | null, body: string, targetTimestamp: number, emoji: string) => {
       setReactingMessageId(null);
@@ -1436,6 +1468,7 @@ export function MessageList({
                 : parseSenderFromText(msg.text);
             const meshcoreOneReply = parseMeshcoreOneReply(content);
             const messageReactions = reactionsByTargetId.get(msg.id) ?? EMPTY_REACTION_GROUPS;
+            const canReact = Boolean(onSendMessage) && msg.sender_timestamp != null;
             const directSenderName =
               msg.type === 'PRIV' && isRoomServer ? msg.sender_name || null : null;
             const channelSenderName = msg.type === 'CHAN' ? msg.sender_name || sender : null;
@@ -1606,6 +1639,13 @@ export function MessageList({
                       msg.outgoing ? 'bg-msg-outgoing' : 'bg-msg-incoming',
                       highlightedMessageId === msg.id && 'message-highlight'
                     )}
+                    onMouseDown={canReact ? () => startLongPress(msg.id) : undefined}
+                    onMouseUp={canReact ? cancelLongPress : undefined}
+                    onMouseLeave={canReact ? cancelLongPress : undefined}
+                    onTouchStart={canReact ? () => startLongPress(msg.id) : undefined}
+                    onTouchEnd={canReact ? cancelLongPress : undefined}
+                    onTouchMove={canReact ? cancelLongPress : undefined}
+                    onContextMenu={canReact ? (e) => e.preventDefault() : undefined}
                   >
                     {showAvatar && (
                       <div className="text-[0.8125rem] font-semibold text-foreground mb-0.5">
@@ -1668,19 +1708,11 @@ export function MessageList({
                         ))
                       )}
                       {renderRichPayloads && <ReactionBadges groups={messageReactions} />}
-                      {onSendMessage && msg.sender_timestamp != null && (
-                        <ReactButton
-                          open={reactingMessageId === msg.id}
-                          onToggle={() =>
-                            setReactingMessageId((prev) => (prev === msg.id ? null : msg.id))
-                          }
+                      {canReact && reactingMessageId === msg.id && (
+                        <ReactionPopup
+                          ref={reactionPopupRef}
                           onPick={(emoji) =>
-                            void handleReact(
-                              channelSenderName,
-                              content,
-                              msg.sender_timestamp!,
-                              emoji
-                            )
+                            void handleReact(channelSenderName, content, msg.sender_timestamp!, emoji)
                           }
                         />
                       )}

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -607,33 +607,98 @@ describe('MessageList MeshCore One reactions & replies', () => {
     expect(screen.getByText('Nice to meet you')).toBeInTheDocument();
   });
 
-  it('reveals a quick-emoji row and sends a correctly formatted reaction when clicked', async () => {
-    const user = userEvent.setup();
-    const onSendMessage = vi.fn().mockResolvedValue(undefined);
+  it('opens the reaction popup after a 1s press-and-hold and sends on pick', () => {
+    vi.useFakeTimers();
+    try {
+      const onSendMessage = vi.fn().mockResolvedValue(undefined);
 
-    render(
-      <RichPayloadProvider renderRichPayloads={false} setRenderRichPayloads={() => {}}>
-        <MessageList
-          messages={[targetMessage]}
-          contacts={[]}
-          loading={false}
-          onSendMessage={onSendMessage}
-        />
-      </RichPayloadProvider>
-    );
+      const { container } = render(
+        <RichPayloadProvider renderRichPayloads={false} setRenderRichPayloads={() => {}}>
+          <MessageList
+            messages={[targetMessage]}
+            contacts={[]}
+            loading={false}
+            onSendMessage={onSendMessage}
+          />
+        </RichPayloadProvider>
+      );
 
-    expect(screen.queryByLabelText('React with 👍')).not.toBeInTheDocument();
-    await user.click(screen.getByLabelText('React to this message'));
-    await user.click(screen.getByLabelText('React with 👍'));
+      expect(screen.queryByLabelText('React with 👍')).not.toBeInTheDocument();
 
-    expect(onSendMessage).toHaveBeenCalledTimes(1);
-    // channel reaction to "Hello there" @ sender_timestamp 1700000000 from
-    // "Alice" — hash must match computeReactionHash's own output exactly.
-    expect(onSendMessage).toHaveBeenCalledWith('👍@[Alice]\nee7apffy');
+      const bubble = container.querySelector('[data-message-id="10"] .rounded-lg')!;
+      fireEvent.mouseDown(bubble);
+
+      // Releasing before 1s must not open the popup.
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+      fireEvent.mouseUp(bubble);
+      act(() => {
+        vi.advanceTimersByTime(600);
+      });
+      expect(screen.queryByLabelText('React with 👍')).not.toBeInTheDocument();
+
+      // Holding for the full 1s opens it.
+      fireEvent.mouseDown(bubble);
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+      const emojiButton = screen.getByLabelText('React with 👍');
+      expect(emojiButton).toBeInTheDocument();
+
+      fireEvent.click(emojiButton);
+      expect(onSendMessage).toHaveBeenCalledTimes(1);
+      // channel reaction to "Hello there" @ sender_timestamp 1700000000 from
+      // "Alice" — hash must match computeReactionHash's own output exactly.
+      expect(onSendMessage).toHaveBeenCalledWith('👍@[Alice]\nee7apffy');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  it('does not show a react control when onSendMessage is not provided', () => {
-    renderWithRichPayloads([targetMessage], false);
-    expect(screen.queryByLabelText('React to this message')).not.toBeInTheDocument();
+  it('closes the popup on a click outside it, without sending anything', () => {
+    vi.useFakeTimers();
+    try {
+      const onSendMessage = vi.fn().mockResolvedValue(undefined);
+
+      const { container } = render(
+        <RichPayloadProvider renderRichPayloads={false} setRenderRichPayloads={() => {}}>
+          <MessageList
+            messages={[targetMessage]}
+            contacts={[]}
+            loading={false}
+            onSendMessage={onSendMessage}
+          />
+        </RichPayloadProvider>
+      );
+
+      const bubble = container.querySelector('[data-message-id="10"] .rounded-lg')!;
+      fireEvent.mouseDown(bubble);
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(screen.getByLabelText('React with 👍')).toBeInTheDocument();
+
+      fireEvent.mouseDown(document.body);
+      expect(screen.queryByLabelText('React with 👍')).not.toBeInTheDocument();
+      expect(onSendMessage).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not open a reaction popup when onSendMessage is not provided', () => {
+    vi.useFakeTimers();
+    try {
+      const { container } = renderWithRichPayloads([targetMessage], false);
+      const bubble = container.querySelector('[data-message-id="10"] .rounded-lg')!;
+      fireEvent.mouseDown(bubble);
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(screen.queryByLabelText('React with 👍')).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
