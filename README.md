@@ -190,6 +190,18 @@ sudo systemctl enable --now remoteterm-meshcore
 
 Access the app at http://localhost:8000.
 
+## Updating
+
+**Do not reinstall from a fresh clone to update** — your database and config live in `./data/` and `.env`
+inside your existing checkout, and a from-scratch reinstall elsewhere won't see them.
+
+- **Clone And Build:** from your existing checkout, `git pull`, then re-run `uv sync` and
+  `cd frontend && npm install && npm run build && cd ..` before restarting the server.
+- **Docker:** `sudo docker compose pull && sudo docker compose up -d` (or `--build` if you're building
+  locally — see the rebuild note above). The bind-mounted `./data/` is untouched by this.
+- **AUR:** update the package normally (`yay -S remoteterm-meshcore` or rebuild via `makepkg -si`); the
+  database path is set in `/etc/remoteterm-meshcore/remoteterm.env` and isn't touched by the package update.
+
 ## Standard Environment Variables
 
 Only one transport may be active at a time. If multiple are set, the server will refuse to start.
