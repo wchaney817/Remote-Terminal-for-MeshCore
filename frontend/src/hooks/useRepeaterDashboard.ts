@@ -208,6 +208,7 @@ export interface UseRepeaterDashboardResult {
   paneStates: Record<PaneName, PaneState>;
   consoleHistory: ConsoleEntry[];
   consoleLoading: boolean;
+  loadAllRunning: boolean;
   login: (password: string) => Promise<void>;
   loginAsGuest: () => Promise<void>;
   refreshPane: (pane: PaneName) => Promise<void>;
@@ -256,6 +257,7 @@ export function useRepeaterDashboard(
     cachedState?.consoleHistory ?? []
   );
   const [consoleLoading, setConsoleLoading] = useState(false);
+  const [loadAllRunning, setLoadAllRunning] = useState(false);
 
   // Track which conversation we're operating on to avoid stale updates after
   // unmount. Initialised from activeConversation because the parent renders
@@ -468,9 +470,16 @@ export function useRepeaterDashboard(
       'lppTelemetry',
       'regions',
     ];
-    // Serial execution — parallel calls just queue behind the radio lock anyway
-    for (const pane of panes) {
-      await refreshPane(pane);
+    // Serial execution — parallel calls just queue behind the radio lock anyway.
+    // loadAllRunning blocks ad hoc single-pane refreshes for the duration, so a
+    // manual click can't race a pane this loop hasn't reached yet.
+    setLoadAllRunning(true);
+    try {
+      for (const pane of panes) {
+        await refreshPane(pane);
+      }
+    } finally {
+      setLoadAllRunning(false);
     }
   }, [refreshPane]);
 
@@ -545,6 +554,7 @@ export function useRepeaterDashboard(
     paneStates,
     consoleHistory,
     consoleLoading,
+    loadAllRunning,
     login,
     loginAsGuest,
     refreshPane,

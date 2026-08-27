@@ -84,6 +84,7 @@ export function RepeaterDashboard({
     paneData,
     paneStates,
     consoleHistory,
+    loadAllRunning,
     consoleLoading,
     login,
     loginAsGuest,
@@ -334,19 +335,19 @@ export function RepeaterDashboard({
                   data={paneData.nodeInfo}
                   state={paneStates.nodeInfo}
                   onRefresh={() => refreshPane('nodeInfo')}
-                  disabled={anyLoading}
+                  disabled={loadAllRunning}
                 />
                 <TelemetryPane
                   data={paneData.status}
                   state={paneStates.status}
                   onRefresh={() => refreshPane('status')}
-                  disabled={anyLoading}
+                  disabled={loadAllRunning}
                 />
                 <RadioSettingsPane
                   data={paneData.radioSettings}
                   state={paneStates.radioSettings}
                   onRefresh={() => refreshPane('radioSettings')}
-                  disabled={anyLoading}
+                  disabled={loadAllRunning}
                   advertData={paneData.advertIntervals}
                   advertState={paneStates.advertIntervals}
                   onRefreshAdvert={() => refreshPane('advertIntervals')}
@@ -355,7 +356,7 @@ export function RepeaterDashboard({
                   data={paneData.lppTelemetry}
                   state={paneStates.lppTelemetry}
                   onRefresh={() => refreshPane('lppTelemetry')}
-                  disabled={anyLoading}
+                  disabled={loadAllRunning}
                 />
               </div>
               <div className="flex min-h-0 flex-col gap-4">
@@ -363,7 +364,7 @@ export function RepeaterDashboard({
                   data={paneData.neighbors}
                   state={paneStates.neighbors}
                   onRefresh={() => refreshPane('neighbors')}
-                  disabled={anyLoading}
+                  disabled={loadAllRunning}
                   repeaterContact={contact}
                   contacts={contacts}
                   nodeInfo={paneData.nodeInfo}
@@ -380,13 +381,13 @@ export function RepeaterDashboard({
                   data={paneData.acl}
                   state={paneStates.acl}
                   onRefresh={() => refreshPane('acl')}
-                  disabled={anyLoading}
+                  disabled={loadAllRunning}
                 />
                 <RegionsPane
                   data={paneData.regions}
                   state={paneStates.regions}
                   onRefresh={() => refreshPane('regions')}
-                  disabled={anyLoading}
+                  disabled={loadAllRunning}
                 />
               </div>
               <div className="flex flex-col gap-4">
@@ -394,7 +395,7 @@ export function RepeaterDashboard({
                   data={paneData.ownerInfo}
                   state={paneStates.ownerInfo}
                   onRefresh={() => refreshPane('ownerInfo')}
-                  disabled={anyLoading}
+                  disabled={loadAllRunning}
                 />
                 <ActionsPane
                   onSendZeroHopAdvert={sendZeroHopAdvert}

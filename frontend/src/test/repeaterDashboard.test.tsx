@@ -36,6 +36,7 @@ const mockHook: {
   },
   consoleHistory: [],
   consoleLoading: false,
+  loadAllRunning: false,
   login: vi.fn(),
   loginAsGuest: vi.fn(),
   refreshPane: vi.fn(),
