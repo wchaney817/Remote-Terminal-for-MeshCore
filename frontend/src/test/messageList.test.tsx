@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { MessageList } from '../components/MessageList';
 import { PathHopWidthProvider } from '../contexts/PathHopWidthContext';
+import { RichPayloadProvider } from '../contexts/RichPayloadContext';
 import { CONTACT_TYPE_ROOM, type Contact, type Message } from '../types';
 
 const scrollIntoViewMock = vi.fn();
@@ -513,5 +514,96 @@ describe('MessageList channel sender rendering', () => {
     const mounted = container.querySelectorAll('[data-message-id]').length;
     expect(mounted).toBeGreaterThan(0);
     expect(mounted).toBeLessThan(100);
+  });
+});
+
+describe('MessageList MeshCore One reactions & replies', () => {
+  beforeEach(() => {
+    scrollIntoViewMock.mockReset();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoViewMock,
+      writable: true,
+    });
+    Object.defineProperty(HTMLElement.prototype, 'getBoundingClientRect', {
+      configurable: true,
+      value: originalGetBoundingClientRect,
+      writable: true,
+    });
+  });
+
+  function renderWithRichPayloads(messages: Message[], enabled: boolean) {
+    return render(
+      <RichPayloadProvider renderRichPayloads={enabled} setRenderRichPayloads={() => {}}>
+        <MessageList messages={messages} contacts={[]} loading={false} />
+      </RichPayloadProvider>
+    );
+  }
+
+  // "Hello there" @ sender_timestamp 1700000000 hashes to "ee7apffy" (verified
+  // against an independent Python/hashlib implementation of the documented
+  // algorithm — see meshcoreOnePayloads.test.ts).
+  const targetMessage = createMessage({
+    id: 10,
+    text: 'Alice: Hello there',
+    sender_name: 'Alice',
+    sender_timestamp: 1700000000,
+    received_at: 1700000001,
+  });
+  const reactionMessage = createMessage({
+    id: 11,
+    text: 'Bob: 👍@[Alice]\nee7apffy',
+    sender_name: 'Bob',
+    sender_timestamp: 1700000005,
+    received_at: 1700000006,
+  });
+
+  it('hides a resolved reaction message and shows it as a badge on its target', () => {
+    const { container } = renderWithRichPayloads([targetMessage, reactionMessage], true);
+
+    expect(screen.getByText('Hello there')).toBeInTheDocument();
+    expect(screen.getByText('👍')).toBeInTheDocument();
+    // The reaction message itself never mounts as its own bubble.
+    expect(container.querySelector('[data-message-id="11"]')).not.toBeInTheDocument();
+  });
+
+  it('leaves an unresolved reaction (unknown target hash) visible as plain text', () => {
+    const unresolved = createMessage({
+      id: 12,
+      text: 'Bob: 👍@[Alice]\nzzzzzzzz',
+      sender_name: 'Bob',
+      sender_timestamp: 1700000005,
+      received_at: 1700000006,
+    });
+
+    const { container } = renderWithRichPayloads([targetMessage, unresolved], true);
+
+    expect(container.querySelector('[data-message-id="12"]')).toBeInTheDocument();
+  });
+
+  it('does not hide or badge reactions when rich payloads are disabled', () => {
+    const { container } = renderWithRichPayloads([targetMessage, reactionMessage], false);
+
+    // Row 11 mounts normally and shows the raw, unparsed reaction text —
+    // it's neither hidden nor turned into a badge on the target.
+    expect(container.querySelector('[data-message-id="11"]')).toBeInTheDocument();
+    expect(screen.getByText('ee7apffy', { exact: false })).toBeInTheDocument();
+  });
+
+  it('renders a MeshCore One reply as a quoted-preview block, always on', () => {
+    const reply = createMessage({
+      id: 13,
+      text: 'Bob: @[Alice]\n>Hello ther..\nNice to meet you',
+      sender_name: 'Bob',
+      sender_timestamp: 1700000010,
+      received_at: 1700000011,
+    });
+
+    // Rendered even with rich payloads disabled — this is a display upgrade
+    // over already-readable text, not a "raw garbage" fix like reactions.
+    renderWithRichPayloads([reply], false);
+
+    expect(screen.getByText('Hello ther..')).toBeInTheDocument();
+    expect(screen.getByText('Nice to meet you')).toBeInTheDocument();
   });
 });

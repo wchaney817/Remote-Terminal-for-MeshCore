@@ -468,17 +468,17 @@ export function SettingsLocalSection({
               className="mt-0.5"
             />
             <div className="space-y-1">
-              <Label htmlFor="render-rich-payloads">
-                Render MeshCore Open GIFs &amp; Reactions
-              </Label>
+              <Label htmlFor="render-rich-payloads">Render GIFs &amp; Reactions</Label>
               <p className="text-[0.8125rem] text-muted-foreground">
-                MeshCore Open clients send GIFs and emoji reactions as encoded text (e.g.{' '}
-                <code className="text-[0.75rem]">g:abc123</code> or{' '}
-                <code className="text-[0.75rem]">r:1a2b:05</code>). When enabled, these render as
-                the GIF image or reaction emoji instead of the raw text. Reactions show generically
-                (the emoji is not tied to a specific message). GIFs load from media.giphy.com, which
-                reaches outside your local network and exposes your IP to Giphy — so this is off by
-                default.
+                MeshCore Open and MeshCore One clients send GIFs and emoji reactions as encoded
+                text (e.g. <code className="text-[0.75rem]">g:abc123</code>,{' '}
+                <code className="text-[0.75rem]">r:1a2b:05</code>, or{' '}
+                <code className="text-[0.75rem]">👍@[Name]\nb45pc4ek</code>). When enabled, these
+                render as the GIF image or reaction emoji instead of the raw text. MeshCore Open
+                reactions show generically (the emoji isn't tied to a specific message); MeshCore
+                One reactions are resolved and shown as a badge on the message they target. GIFs
+                load from media.giphy.com, which reaches outside your local network and exposes
+                your IP to Giphy — so this is off by default.
               </p>
             </div>
           </div>

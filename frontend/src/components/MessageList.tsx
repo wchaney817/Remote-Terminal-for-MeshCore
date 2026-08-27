@@ -22,6 +22,11 @@ import {
   splitReplyMention,
 } from '../utils/meshcoreOpenPayloads';
 import { osmUrlForCoords, parseWireTag } from '../utils/meshMapperPayloads';
+import {
+  computeReactionHash,
+  parseMeshcoreOneReaction,
+  parseMeshcoreOneReply,
+} from '../utils/meshcoreOnePayloads';
 import { useRichPayloads } from '../contexts/RichPayloadContext';
 import { usePathHopWidth } from '../contexts/PathHopWidthContext';
 import { formatHopCounts, formatPathHopWidths, type SenderInfo } from '../utils/pathUtils';
@@ -205,6 +210,165 @@ function renderMeshMapperPayload(
     renderWireTagBody,
     radioName,
     onChannelReferenceClick
+  );
+}
+
+// --- MeshCore One reactions (attached as badges, not shown as their own message) ---
+
+interface MeshcoreOneReactionGroup {
+  emoji: string;
+  count: number;
+  senderNames: string[];
+}
+
+interface MeshcoreOneReactionIndex {
+  /** IDs of resolved reaction messages — hidden from the timeline, badge shown on their target instead. */
+  hiddenMessageIds: Set<number>;
+  /** Resolved reaction badges, keyed by the target message's id. */
+  reactionsByTargetId: Map<number, MeshcoreOneReactionGroup[]>;
+}
+
+const EMPTY_REACTION_INDEX: MeshcoreOneReactionIndex = {
+  hiddenMessageIds: new Set(),
+  reactionsByTargetId: new Map(),
+};
+
+const EMPTY_REACTION_GROUPS: MeshcoreOneReactionGroup[] = [];
+
+// Extract a message's body the same way it's displayed: channel messages carry
+// a "SenderName: " wire prefix that MeshCore One's own hash does not include.
+function extractMessageBody(msg: Message): string {
+  return msg.type === 'PRIV' ? msg.text : parseSenderFromText(msg.text).content;
+}
+
+/**
+ * Build the MeshCore One reaction index for a conversation: which loaded
+ * messages are reactions (to hide from the timeline), and which resolved
+ * badges attach to which target message (see meshcoreOnePayloads.ts for the
+ * wire format and hashing). A reaction only resolves — and is only hidden —
+ * when its target message is also currently loaded, so a reaction whose
+ * target hasn't been paged in yet is left as an ordinary (unrecognized)
+ * message instead of silently vanishing.
+ */
+function computeMeshcoreOneReactionIndex(messages: Message[]): MeshcoreOneReactionIndex {
+  if (messages.length === 0) return EMPTY_REACTION_INDEX;
+
+  const bodies = new Map<number, string>();
+  for (const msg of messages) {
+    bodies.set(msg.id, extractMessageBody(msg));
+  }
+
+  // Pass 1: hash every non-reaction message that carries a sender timestamp
+  // (required input to the hash — see computeReactionHash).
+  const hashIndex = new Map<string, Message>();
+  for (const msg of messages) {
+    if (msg.sender_timestamp == null) continue;
+    const body = bodies.get(msg.id) ?? '';
+    if (parseMeshcoreOneReaction(body, msg.type === 'PRIV')) continue;
+    const hash = computeReactionHash(body, msg.sender_timestamp);
+    if (!hashIndex.has(hash)) hashIndex.set(hash, msg); // first writer wins on a (near-impossible) collision
+  }
+
+  // Pass 2: resolve reactions against that index.
+  const hiddenMessageIds = new Set<number>();
+  const reactionsByTargetId = new Map<number, MeshcoreOneReactionGroup[]>();
+  const seenDedupeKeys = new Set<string>();
+
+  for (const msg of messages) {
+    const body = bodies.get(msg.id) ?? '';
+    const reaction = parseMeshcoreOneReaction(body, msg.type === 'PRIV');
+    if (!reaction) continue;
+
+    const target = hashIndex.get(reaction.hash);
+    if (!target) continue;
+
+    hiddenMessageIds.add(msg.id);
+
+    const reactingSenderName =
+      msg.type === 'CHAN' ? msg.sender_name || parseSenderFromText(msg.text).sender : msg.sender_name;
+
+    // Dedupe by (targetHash, senderName, emoji) — a node may relay the same
+    // reaction more than once. The duplicate is still hidden, just not
+    // double-counted in the badge.
+    const dedupeKey = `${reaction.hash}|${reactingSenderName ?? ''}|${reaction.emoji}`;
+    if (seenDedupeKeys.has(dedupeKey)) continue;
+    seenDedupeKeys.add(dedupeKey);
+
+    const groups = reactionsByTargetId.get(target.id) ?? [];
+    const existing = groups.find((g) => g.emoji === reaction.emoji);
+    if (existing) {
+      existing.count += 1;
+      if (reactingSenderName) existing.senderNames.push(reactingSenderName);
+    } else {
+      groups.push({
+        emoji: reaction.emoji,
+        count: 1,
+        senderNames: reactingSenderName ? [reactingSenderName] : [],
+      });
+    }
+    reactionsByTargetId.set(target.id, groups);
+  }
+
+  return { hiddenMessageIds, reactionsByTargetId };
+}
+
+// Reaction badges attached below a message bubble, iMessage/Slack-style.
+function ReactionBadges({ groups }: { groups: MeshcoreOneReactionGroup[] }) {
+  if (groups.length === 0) return null;
+  return (
+    <div className="mt-1 flex flex-wrap gap-1">
+      {groups.map((group) => (
+        <span
+          key={group.emoji}
+          className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/60 px-1.5 py-0.5 text-xs leading-none"
+          title={group.senderNames.length > 0 ? group.senderNames.join(', ') : undefined}
+        >
+          <span>{group.emoji}</span>
+          {group.count > 1 && <span className="text-muted-foreground">{group.count}</span>}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// --- MeshCore One reply-with-quote ---
+
+// Renders a MeshCore One reply as a quoted-preview block above the reply body
+// (iMessage/Slack-style), instead of the raw three-line "@[Name]\n>preview\nbody"
+// text. Always on (no external call or privacy tradeoff, just a display upgrade
+// — see parseMeshcoreOneReply).
+function ReplyQuoteBubble({
+  mentionName,
+  quotePreview,
+  body,
+  radioName,
+  onChannelReferenceClick,
+}: {
+  mentionName: string;
+  quotePreview: string;
+  body: string;
+  radioName?: string;
+  onChannelReferenceClick?: (channelName: string) => void;
+}) {
+  return (
+    <div className="space-y-1">
+      <div className="rounded-md border-l-2 border-primary/40 bg-muted/40 px-2 py-1">
+        <div className="text-xs font-medium text-foreground/80">
+          {renderTextWithMentions(`@[${mentionName}]`, radioName, onChannelReferenceClick)}
+        </div>
+        {quotePreview && (
+          <div className="truncate text-xs text-muted-foreground italic">{quotePreview}</div>
+        )}
+      </div>
+      <div>
+        {body.split('\n').map((line, i, arr) => (
+          <span key={i}>
+            {renderTextWithMentions(line, radioName, onChannelReferenceClick)}
+            {i < arr.length - 1 && <br />}
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -585,6 +749,12 @@ export function MessageList({
         ? messages
         : [...messages].sort((a, b) => a.received_at - b.received_at || a.id - b.id),
     [messages, preSorted]
+  );
+
+  const { hiddenMessageIds: reactionHiddenIds, reactionsByTargetId } = useMemo(
+    () =>
+      renderRichPayloads ? computeMeshcoreOneReactionIndex(sortedMessages) : EMPTY_REACTION_INDEX,
+    [sortedMessages, renderRichPayloads]
   );
   /**
    * Only the visible window of messages is mounted. A long channel history otherwise
@@ -1163,6 +1333,25 @@ export function MessageList({
             // (conversation switch, blocked-sender refilter). Rendering ahead of
             // that would dereference undefined and blank the whole chat pane.
             if (!msg) return null;
+
+            // A resolved MeshCore One reaction: hide the raw reaction message
+            // from the timeline (its emoji is shown as a badge on the target
+            // message instead — see ReactionBadges), collapsing this row to
+            // ~0px rather than removing it from sortedMessages, so every
+            // other index-based computation in this component (unread marker
+            // position, scroll-to-target, avatar grouping) stays untouched.
+            if (reactionHiddenIds.has(msg.id)) {
+              return (
+                <div
+                  key={msg.id}
+                  data-index={index}
+                  ref={virtualizer.measureElement}
+                  className="absolute left-0 top-0 w-full"
+                  style={{ transform: `translateY(${virtualRow.start - scrollMargin}px)` }}
+                />
+              );
+            }
+
             // For DMs, look up contact; for channel messages, use parsed sender
             const contact = msg.type === 'PRIV' ? getContact(msg.conversation_key) : null;
             const isRoomServer = contact?.type === CONTACT_TYPE_ROOM;
@@ -1174,6 +1363,8 @@ export function MessageList({
               msg.type === 'PRIV'
                 ? { sender: null, content: msg.text }
                 : parseSenderFromText(msg.text);
+            const meshcoreOneReply = parseMeshcoreOneReply(content);
+            const messageReactions = reactionsByTargetId.get(msg.id) ?? EMPTY_REACTION_GROUPS;
             const directSenderName =
               msg.type === 'PRIV' && isRoomServer ? msg.sender_name || null : null;
             const channelSenderName = msg.type === 'CHAN' ? msg.sender_name || sender : null;
@@ -1382,7 +1573,16 @@ export function MessageList({
                       </div>
                     )}
                     <div className="break-words whitespace-pre-wrap">
-                      {renderMeshMapperPayload(content, radioName, onChannelReferenceClick) ||
+                      {meshcoreOneReply ? (
+                        <ReplyQuoteBubble
+                          mentionName={meshcoreOneReply.mentionName}
+                          quotePreview={meshcoreOneReply.quotePreview}
+                          body={meshcoreOneReply.body}
+                          radioName={radioName}
+                          onChannelReferenceClick={onChannelReferenceClick}
+                        />
+                      ) : (
+                        renderMeshMapperPayload(content, radioName, onChannelReferenceClick) ||
                         (renderRichPayloads &&
                           renderMeshcoreOpenPayload(
                             content,
@@ -1394,7 +1594,9 @@ export function MessageList({
                             {renderTextWithMentions(line, radioName, onChannelReferenceClick)}
                             {i < arr.length - 1 && <br />}
                           </span>
-                        ))}
+                        ))
+                      )}
+                      {renderRichPayloads && <ReactionBadges groups={messageReactions} />}
                       {!showAvatar && (
                         <>
                           <span className="text-[0.625rem] text-muted-foreground ml-2">
