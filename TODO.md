@@ -20,7 +20,7 @@ a while; that doesn't block fixing things here for our own use.
 
 ## P2 — Real bugs
 
-- [ ] **[#345](https://github.com/jkingsman/Remote-Terminal-for-MeshCore/issues/345)** — Trace timeout returns HTTP 408, which causes endless auto-retry with no way to cancel. Should return 422 instead — same fix pattern already used elsewhere in a prior PR (#237).
+- [x] **[#345](https://github.com/jkingsman/Remote-Terminal-for-MeshCore/issues/345)** — Trace timeout returns HTTP 408, which causes endless auto-retry with no way to cancel. Should return 422 instead — same fix pattern already used elsewhere in a prior PR (#237).
 - [ ] **[#351](https://github.com/jkingsman/Remote-Terminal-for-MeshCore/issues/351)** — BLE reconnect crash on Ubuntu: `[org.bluez.Error.NotPermitted] Notify acquired` in `radio.py:620`. Needs a BLE device to reproduce/debug properly.
 - [ ] **[#301](https://github.com/jkingsman/Remote-Terminal-for-MeshCore/issues/301)** — Room servers: path-based login always fails (only flood works), and the 10s login timeout is too short for multi-hop rooms. Maintainer confirmed rooms are "severely untested" — expect more issues once poked at.
 
