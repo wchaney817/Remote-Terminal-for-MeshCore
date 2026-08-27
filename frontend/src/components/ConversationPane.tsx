@@ -355,6 +355,7 @@ export function ConversationPane({
           loadingNewer={loadingNewer}
           onLoadNewer={onLoadNewer}
           onJumpToBottom={onJumpToBottom}
+          onSendMessage={onSendMessage}
         />
       )}
       {showRoomChat && !(activeConversation.type === 'contact' && isPrefixOnlyActiveContact) ? (

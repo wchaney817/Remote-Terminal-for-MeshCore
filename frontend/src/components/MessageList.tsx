@@ -23,6 +23,7 @@ import {
 } from '../utils/meshcoreOpenPayloads';
 import { osmUrlForCoords, parseWireTag } from '../utils/meshMapperPayloads';
 import {
+  buildMeshcoreOneReactionText,
   computeReactionHash,
   parseMeshcoreOneReaction,
   parseMeshcoreOneReply,
@@ -65,6 +66,8 @@ interface MessageListProps {
   onLoadNewer?: () => void;
   onJumpToBottom?: () => void;
   preSorted?: boolean;
+  /** Enables the react-to-message UI (sent as a MeshCore One reaction) when provided. */
+  onSendMessage?: (text: string) => Promise<void>;
 }
 
 // Renders a MeshCore Open GIF payload, falling back to the raw text on load error.
@@ -328,6 +331,55 @@ function ReactionBadges({ groups }: { groups: MeshcoreOneReactionGroup[] }) {
         </span>
       ))}
     </div>
+  );
+}
+
+// Default quick-react choices — a small curated set (Slack/iMessage-style),
+// not the full 184-emoji meshcore-open picker table. Unrelated to that
+// table's index encoding, so there's no ordering constraint here.
+const QUICK_REACT_EMOJIS = ['👍', '❤️', '😂', '🎉', '👏', '🔥'];
+
+// The react-to-message control: a small trigger that expands into a row of
+// quick-emoji buttons. Sends in MeshCore One's format (see
+// buildMeshcoreOneReactionText) — the only reaction format we can correctly
+// produce a hash for.
+function ReactButton({
+  open,
+  onToggle,
+  onPick,
+}: {
+  open: boolean;
+  onToggle: () => void;
+  onPick: (emoji: string) => void;
+}) {
+  return (
+    <span className="mt-1 inline-flex items-center gap-1">
+      <button
+        type="button"
+        className="rounded px-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+        onClick={onToggle}
+        aria-label={open ? 'Cancel react' : 'React to this message'}
+        aria-expanded={open}
+        title="React"
+      >
+        {open ? '✕' : '☺+'}
+      </button>
+      {open && (
+        <span className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-1.5 py-0.5 shadow-sm">
+          {QUICK_REACT_EMOJIS.map((emoji) => (
+            <button
+              key={emoji}
+              type="button"
+              className="text-base leading-none transition-transform hover:scale-125"
+              onClick={() => onPick(emoji)}
+              aria-label={`React with ${emoji}`}
+            >
+              {emoji}
+            </button>
+          ))}
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -638,6 +690,7 @@ export function MessageList({
   onLoadNewer,
   onJumpToBottom,
   preSorted = false,
+  onSendMessage,
 }: MessageListProps) {
   const { renderRichPayloads } = useRichPayloads();
   const listRef = useRef<HTMLDivElement>(null);
@@ -667,6 +720,24 @@ export function MessageList({
     isOutgoingChan?: boolean;
   } | null>(null);
   const [resendableIds, setResendableIds] = useState<Set<number>>(new Set());
+  // Id of the message whose quick-react emoji row is currently open (at most one at a time).
+  const [reactingMessageId, setReactingMessageId] = useState<number | null>(null);
+  const handleReact = useCallback(
+    async (targetSenderName: string | null, body: string, targetTimestamp: number, emoji: string) => {
+      setReactingMessageId(null);
+      if (!onSendMessage) return;
+      try {
+        await onSendMessage(
+          buildMeshcoreOneReactionText(emoji, targetSenderName, body, targetTimestamp)
+        );
+      } catch (err) {
+        toast.error('Failed to send reaction', {
+          description: err instanceof Error ? err.message : 'Unknown error',
+        });
+      }
+    },
+    [onSendMessage]
+  );
   const resendTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
   const packetCacheRef = useRef<Map<number, RawPacket>>(new Map());
   const packetSignalOverrideRef = useRef<{ rssi: number | null; snr: number | null } | undefined>(
@@ -1597,6 +1668,22 @@ export function MessageList({
                         ))
                       )}
                       {renderRichPayloads && <ReactionBadges groups={messageReactions} />}
+                      {onSendMessage && msg.sender_timestamp != null && (
+                        <ReactButton
+                          open={reactingMessageId === msg.id}
+                          onToggle={() =>
+                            setReactingMessageId((prev) => (prev === msg.id ? null : msg.id))
+                          }
+                          onPick={(emoji) =>
+                            void handleReact(
+                              channelSenderName,
+                              content,
+                              msg.sender_timestamp!,
+                              emoji
+                            )
+                          }
+                        />
+                      )}
                       {!showAvatar && (
                         <>
                           <span className="text-[0.625rem] text-muted-foreground ml-2">

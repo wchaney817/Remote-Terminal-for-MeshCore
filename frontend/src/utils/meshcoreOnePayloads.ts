@@ -209,3 +209,25 @@ export function parseMeshcoreOneReply(text: string): ParsedMeshcoreOneReply | nu
   const [, mentionName, quotePreview, body] = match;
   return { mentionName, quotePreview, body };
 }
+
+/**
+ * Build the wire text for a reaction to a message, in MeshCore One's format.
+ * `targetSenderName` should be the channel-wire sender name of the message
+ * being reacted to (parsed the same way as any other channel message), or
+ * null for a DM. `targetText`/`targetTimestamp` must be that message's body
+ * (with any "SenderName: " prefix already stripped) and original sender
+ * timestamp — the same inputs a receiver will hash to resolve this reaction.
+ *
+ * This is the format we send in (not meshcore-open's) because its hash is a
+ * standard, verifiable SHA-256 truncation we can correctly reproduce; see the
+ * module docs for why meshcore-open's own format can't be reliably emitted.
+ */
+export function buildMeshcoreOneReactionText(
+  emoji: string,
+  targetSenderName: string | null,
+  targetText: string,
+  targetTimestamp: number
+): string {
+  const hash = computeReactionHash(targetText, targetTimestamp);
+  return targetSenderName ? `${emoji}@[${targetSenderName}]\n${hash}` : `${emoji}\n${hash}`;
+}

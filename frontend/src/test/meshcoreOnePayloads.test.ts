@@ -9,6 +9,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  buildMeshcoreOneReactionText,
   computeReactionHash,
   parseMeshcoreOneReaction,
   parseMeshcoreOneReply,
@@ -147,5 +148,27 @@ describe('parseMeshcoreOneReply', () => {
 
   it('returns null for a MeshCore One reaction (no reply header)', () => {
     expect(parseMeshcoreOneReply('👍@[Node]\na1b2c3d4')).toBeNull();
+  });
+});
+
+describe('buildMeshcoreOneReactionText', () => {
+  it('builds channel-form text that round-trips through the parser', () => {
+    const text = buildMeshcoreOneReactionText('👍', 'AlphaNode', 'Hello there', 1700000000);
+    const parsed = parseMeshcoreOneReaction(text, false);
+    expect(parsed).toEqual({
+      emoji: '👍',
+      targetSenderName: 'AlphaNode',
+      hash: computeReactionHash('Hello there', 1700000000),
+    });
+  });
+
+  it('builds DM-form text (no sender) that round-trips through the parser', () => {
+    const text = buildMeshcoreOneReactionText('❤️', null, 'hi', 1700000000);
+    const parsed = parseMeshcoreOneReaction(text, true);
+    expect(parsed).toEqual({
+      emoji: '❤️',
+      targetSenderName: null,
+      hash: computeReactionHash('hi', 1700000000),
+    });
   });
 });

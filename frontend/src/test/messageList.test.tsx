@@ -606,4 +606,34 @@ describe('MessageList MeshCore One reactions & replies', () => {
     expect(screen.getByText('Hello ther..')).toBeInTheDocument();
     expect(screen.getByText('Nice to meet you')).toBeInTheDocument();
   });
+
+  it('reveals a quick-emoji row and sends a correctly formatted reaction when clicked', async () => {
+    const user = userEvent.setup();
+    const onSendMessage = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <RichPayloadProvider renderRichPayloads={false} setRenderRichPayloads={() => {}}>
+        <MessageList
+          messages={[targetMessage]}
+          contacts={[]}
+          loading={false}
+          onSendMessage={onSendMessage}
+        />
+      </RichPayloadProvider>
+    );
+
+    expect(screen.queryByLabelText('React with 👍')).not.toBeInTheDocument();
+    await user.click(screen.getByLabelText('React to this message'));
+    await user.click(screen.getByLabelText('React with 👍'));
+
+    expect(onSendMessage).toHaveBeenCalledTimes(1);
+    // channel reaction to "Hello there" @ sender_timestamp 1700000000 from
+    // "Alice" — hash must match computeReactionHash's own output exactly.
+    expect(onSendMessage).toHaveBeenCalledWith('👍@[Alice]\nee7apffy');
+  });
+
+  it('does not show a react control when onSendMessage is not provided', () => {
+    renderWithRichPayloads([targetMessage], false);
+    expect(screen.queryByLabelText('React to this message')).not.toBeInTheDocument();
+  });
 });
