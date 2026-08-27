@@ -22,6 +22,21 @@ import {
   type ServerLoginAttemptState,
 } from '../utils/serverLoginState';
 
+// A successful authenticated fetch/command implicitly proves the login held,
+// even if we never heard an explicit confirmation packet from the repeater.
+function buildConfirmedLoginAttemptFromAction(
+  priorAttempt: ServerLoginAttemptState
+): ServerLoginAttemptState {
+  return {
+    method: priorAttempt.method,
+    outcome: 'confirmed',
+    summary: 'Login confirmed by a successful authenticated request.',
+    details: null,
+    heardBack: true,
+    at: Date.now(),
+  };
+}
+
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 2000;
 const MAX_CACHED_REPEATERS = 20;
@@ -222,6 +237,9 @@ export function useRepeaterDashboard(
   const [lastLoginAttempt, setLastLoginAttempt] = useState<ServerLoginAttemptState | null>(
     cachedState?.lastLoginAttempt ?? null
   );
+  const lastLoginAttemptRef = useRef<ServerLoginAttemptState | null>(
+    cachedState?.lastLoginAttempt ?? null
+  );
 
   const [paneData, setPaneData] = useState<PaneData>(
     cachedState?.paneData ?? createInitialPaneData
@@ -276,6 +294,19 @@ export function useRepeaterDashboard(
     paneData,
     paneStates,
   ]);
+
+  useEffect(() => {
+    lastLoginAttemptRef.current = lastLoginAttempt;
+  }, [lastLoginAttempt]);
+
+  // A successful authenticated request proves the login held even if we never
+  // heard an explicit confirmation from the repeater — clear a stale warning.
+  const markLoginConfirmedByAction = useCallback(() => {
+    const prior = lastLoginAttemptRef.current;
+    if (prior && prior.outcome !== 'confirmed') {
+      setLastLoginAttempt(buildConfirmedLoginAttemptFromAction(prior));
+    }
+  }, []);
 
   useEffect(() => {
     paneDataRef.current = paneData;
@@ -392,6 +423,7 @@ export function useRepeaterDashboard(
             ...prev,
             [pane]: successState,
           }));
+          markLoginConfirmedByAction();
           return; // Success
         } catch (err) {
           if (!mountedRef.current || activeIdRef.current !== conversationId) return;
@@ -421,7 +453,7 @@ export function useRepeaterDashboard(
         }
       }
     },
-    [getPublicKey, options.hasAdvertLocation]
+    [getPublicKey, options.hasAdvertLocation, markLoginConfirmedByAction]
   );
 
   const loadAll = useCallback(async () => {
@@ -470,6 +502,7 @@ export function useRepeaterDashboard(
             outgoing: false,
           },
         ]);
+        markLoginConfirmedByAction();
       } catch (err) {
         if (activeIdRef.current !== conversationId) return;
         const msg = err instanceof Error ? err.message : 'Command failed';
@@ -483,7 +516,7 @@ export function useRepeaterDashboard(
         }
       }
     },
-    [getPublicKey]
+    [getPublicKey, markLoginConfirmedByAction]
   );
 
   const sendZeroHopAdvert = useCallback(async () => {
