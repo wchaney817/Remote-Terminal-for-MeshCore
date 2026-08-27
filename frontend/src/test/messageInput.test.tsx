@@ -208,4 +208,64 @@ describe('MessageInput', () => {
       });
     });
   });
+
+  describe('emoji picker', () => {
+    function openPicker() {
+      fireEvent.click(screen.getByRole('button', { name: 'Insert emoji' }));
+    }
+
+    it('is closed until the trigger is clicked', () => {
+      renderInput({ conversationType: 'contact' });
+      expect(screen.queryByRole('button', { name: 'Insert 👍' })).not.toBeInTheDocument();
+      openPicker();
+      expect(screen.getByRole('button', { name: 'Insert 👍' })).toBeInTheDocument();
+    });
+
+    it('inserts the picked emoji at the cursor position, not just appended', () => {
+      renderInput({ conversationType: 'contact' });
+      const input = getInput();
+      fireEvent.change(input, { target: { value: 'Hello world' } });
+      input.setSelectionRange(5, 5); // right after "Hello"
+
+      openPicker();
+      fireEvent.click(screen.getByRole('button', { name: 'Insert 👍' }));
+
+      expect(input.value).toBe('Hello👍 world');
+    });
+
+    it('keeps the popover open after picking, so multiple emoji can be inserted', () => {
+      renderInput({ conversationType: 'contact' });
+      const input = getInput();
+
+      openPicker();
+      fireEvent.click(screen.getByRole('button', { name: 'Insert 👍' }));
+      expect(screen.getByRole('button', { name: 'Insert 👍' })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Insert ❤️' }));
+      expect(input.value).toBe('👍❤️');
+    });
+
+    it('closes on a click outside the popover', () => {
+      renderInput({ conversationType: 'contact' });
+      openPicker();
+      expect(screen.getByRole('button', { name: 'Insert 👍' })).toBeInTheDocument();
+
+      fireEvent.mouseDown(document.body);
+      expect(screen.queryByRole('button', { name: 'Insert 👍' })).not.toBeInTheDocument();
+    });
+
+    it('switches categories via the tabs', () => {
+      renderInput({ conversationType: 'contact' });
+      openPicker();
+      expect(screen.queryByRole('button', { name: 'Insert 🚀' })).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Objects' }));
+      expect(screen.getByRole('button', { name: 'Insert 🚀' })).toBeInTheDocument();
+    });
+
+    it('is disabled when the input itself is disabled', () => {
+      renderInput({ conversationType: 'contact', disabled: true });
+      expect(screen.getByRole('button', { name: 'Insert emoji' })).toBeDisabled();
+    });
+  });
 });

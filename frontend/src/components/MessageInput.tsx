@@ -11,6 +11,7 @@ import {
   type KeyboardEvent,
 } from 'react';
 import { Button } from './ui/button';
+import { EmojiPicker } from './EmojiPicker';
 import { toast } from './ui/sonner';
 import { cn } from '@/lib/utils';
 import {
@@ -194,6 +195,25 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
     [handleSubmit]
   );
 
+  // Insert an emoji at the current cursor position (replacing any selection),
+  // rather than just appending — the emoji picker is used mid-sentence far
+  // more often than the append-only mention insertion (appendText) is.
+  const insertEmoji = useCallback(
+    (emoji: string) => {
+      const el = textareaRef.current;
+      const start = el?.selectionStart ?? text.length;
+      const end = el?.selectionEnd ?? text.length;
+      const next = text.slice(0, start) + emoji + text.slice(end);
+      setText(next);
+      const pos = start + emoji.length;
+      requestAnimationFrame(() => {
+        el?.focus();
+        el?.setSelectionRange(pos, pos);
+      });
+    },
+    [text]
+  );
+
   const canSubmit = text.trim().length > 0;
 
   // Show counter for messages (not raw).
@@ -229,6 +249,7 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
           )}
           style={{ minHeight: '40px', maxHeight: '160px' }}
         />
+        <EmojiPicker onSelect={insertEmoji} disabled={disabled || sending} />
         <Button
           type="submit"
           disabled={disabled || sending || !canSubmit}

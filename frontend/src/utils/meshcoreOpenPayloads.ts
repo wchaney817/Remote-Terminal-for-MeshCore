@@ -20,11 +20,13 @@
  */
 
 // --- Emoji table (order must match meshcore-open exactly for index compat) ---
+// Also reused (not order-sensitive there) as the category source for the
+// compose-box emoji picker — see components/EmojiPicker.tsx.
 
-const QUICK_EMOJIS = ['👍', '❤️', '😂', '🎉', '👏', '🔥'];
+export const QUICK_EMOJIS = ['👍', '❤️', '😂', '🎉', '👏', '🔥'];
 
 // prettier-ignore
-const SMILEYS = [
+export const SMILEYS = [
   '😀', '😃', '😄', '😁', '😅', '😂', '🤣', '😊', '😇', '🙂',
   '🙃', '😉', '😌', '😍', '🥰', '😘', '😗', '😙', '😚', '😋',
   '😛', '😝', '😜', '🤪', '🤨', '🧐', '🤓', '😎', '🥸', '🤩',
@@ -35,7 +37,7 @@ const SMILEYS = [
 ];
 
 // prettier-ignore
-const GESTURES = [
+export const GESTURES = [
   '👍', '👎', '👊', '✊', '🤛', '🤜', '🤞', '✌️', '🤟', '🤘',
   '👌', '🤌', '🤏', '👈', '👉', '👆', '👇', '☝️', '👋', '🤚',
   '🖐️', '✋', '🖖', '👏', '🙌', '👐', '🤲', '🤝', '🙏', '✍️',
@@ -43,7 +45,7 @@ const GESTURES = [
 ];
 
 // prettier-ignore
-const HEARTS = [
+export const HEARTS = [
   '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔',
   '❤️‍🔥', '❤️‍🩹', '💕', '💞', '💓', '💗', '💖', '💘', '💝', '💟',
   '💌', '💢', '💥', '💫', '💦', '💨', '🕳️', '💬', '👁️‍🗨️', '🗨️',
@@ -51,7 +53,7 @@ const HEARTS = [
 ];
 
 // prettier-ignore
-const OBJECTS = [
+export const OBJECTS = [
   '🎉', '🎊', '🎈', '🎁', '🎀', '🪅', '🪆', '🏆', '🥇', '🥈',
   '🥉', '⚽', '⚾', '🥎', '🏀', '🏐', '🏈', '🏉', '🎾', '🥏',
   '🎳', '🏏', '🏑', '🏒', '🥍', '🏓', '🏸', '🥊', '🥋', '🥅',
