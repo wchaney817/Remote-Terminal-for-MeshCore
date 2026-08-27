@@ -11,12 +11,12 @@ a while; that doesn't block fixing things here for our own use.
 
 ## P1 — Quick wins (small, low-risk, do first)
 
-- [ ] **[#349](https://github.com/jkingsman/Remote-Terminal-for-MeshCore/issues/349) / [PR #350](https://github.com/jkingsman/Remote-Terminal-for-MeshCore/pull/350)** — Repeater CLI input auto-capitalizes on mobile (`Get radio` fails, `get radio` works). PR #350 already has the exact one-line fix (`autoCapitalize="none"` in `RepeaterConsolePane.tsx`) — apply directly, no need to deal with the PR branch.
-- [ ] **[#348](https://github.com/jkingsman/Remote-Terminal-for-MeshCore/issues/348)** — README has no update/upgrade instructions; user was confused that reinstalling from scratch overwrites the old DB. Docs-only fix.
-- [ ] **[#326](https://github.com/jkingsman/Remote-Terminal-for-MeshCore/issues/326)** — RPT login warning banner doesn't clear after a later authenticated action succeeds, even though success implicitly proves the login worked.
-- [ ] **[#312](https://github.com/jkingsman/Remote-Terminal-for-MeshCore/issues/312)** — Repeater console: up/down-arrow command history + a link to the official CLI docs. Maintainer explicitly signed off on exactly this scope (declined an inline command reference).
-- [ ] **[PR #324](https://github.com/jkingsman/Remote-Terminal-for-MeshCore/pull/324)** (dependabot) — `ws` 8.19.0 → 8.21.1 (frontend). Routine patch bump, safe to pull in.
-- [ ] **[PR #336](https://github.com/jkingsman/Remote-Terminal-for-MeshCore/pull/336)** (dependabot) — `pydantic-settings` 2.12.0 → 2.14.2. Routine minor bump, safe to pull in.
+- [x] **[#349](https://github.com/jkingsman/Remote-Terminal-for-MeshCore/issues/349) / [PR #350](https://github.com/jkingsman/Remote-Terminal-for-MeshCore/pull/350)** — Repeater CLI input auto-capitalizes on mobile (`Get radio` fails, `get radio` works). PR #350 already has the exact one-line fix (`autoCapitalize="none"` in `RepeaterConsolePane.tsx`) — apply directly, no need to deal with the PR branch.
+- [x] **[#348](https://github.com/jkingsman/Remote-Terminal-for-MeshCore/issues/348)** — README has no update/upgrade instructions; user was confused that reinstalling from scratch overwrites the old DB. Docs-only fix.
+- [x] **[#326](https://github.com/jkingsman/Remote-Terminal-for-MeshCore/issues/326)** — RPT login warning banner doesn't clear after a later authenticated action succeeds, even though success implicitly proves the login worked.
+- [x] **[#312](https://github.com/jkingsman/Remote-Terminal-for-MeshCore/issues/312)** — Repeater console: up/down-arrow command history + a link to the official CLI docs. Maintainer explicitly signed off on exactly this scope (declined an inline command reference).
+- [x] **[PR #324](https://github.com/jkingsman/Remote-Terminal-for-MeshCore/pull/324)** (dependabot) — `ws` 8.19.0 → 8.21.1 (frontend). Routine patch bump, safe to pull in.
+- [x] **[PR #336](https://github.com/jkingsman/Remote-Terminal-for-MeshCore/pull/336)** (dependabot) — `pydantic-settings` 2.12.0 → 2.14.2. Routine minor bump, safe to pull in.
 
 ## P2 — Real bugs
 
