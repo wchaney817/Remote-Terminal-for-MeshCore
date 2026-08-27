@@ -1,6 +1,8 @@
-import { useState, useCallback, useRef, useEffect, type FormEvent } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo, type FormEvent, type KeyboardEvent } from 'react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
+
+const CLI_DOCS_URL = 'https://docs.meshcore.io/cli_commands/';
 
 export function ConsolePane({
   history,
@@ -15,6 +17,14 @@ export function ConsolePane({
   const outputRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const prevLoadingRef = useRef(loading);
+
+  // Session-only command history for up/down-arrow recall (Cisco-CLI-style).
+  const commandHistory = useMemo(
+    () => history.filter((entry) => entry.outgoing).map((entry) => entry.command),
+    [history]
+  );
+  const [historyIndex, setHistoryIndex] = useState<number | null>(null);
+  const draftRef = useRef('');
 
   // Auto-scroll to bottom on new entries
   useEffect(() => {
@@ -37,15 +47,54 @@ export function ConsolePane({
       const trimmed = input.trimStart();
       if (!trimmed || loading) return;
       setInput('');
+      setHistoryIndex(null);
+      draftRef.current = '';
       await onSend(trimmed);
     },
     [input, loading, onSend]
   );
 
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLInputElement>) => {
+      if (commandHistory.length === 0) return;
+
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (historyIndex === null) {
+          draftRef.current = input;
+        }
+        const nextIndex =
+          historyIndex === null ? commandHistory.length - 1 : Math.max(0, historyIndex - 1);
+        setHistoryIndex(nextIndex);
+        setInput(commandHistory[nextIndex]);
+      } else if (e.key === 'ArrowDown') {
+        if (historyIndex === null) return;
+        e.preventDefault();
+        const nextIndex = historyIndex + 1;
+        if (nextIndex >= commandHistory.length) {
+          setHistoryIndex(null);
+          setInput(draftRef.current);
+        } else {
+          setHistoryIndex(nextIndex);
+          setInput(commandHistory[nextIndex]);
+        }
+      }
+    },
+    [commandHistory, historyIndex, input]
+  );
+
   return (
     <div className="border border-border rounded-lg overflow-hidden col-span-full">
-      <div className="px-3 py-2 bg-muted/50 border-b border-border">
+      <div className="px-3 py-2 bg-muted/50 border-b border-border flex items-center justify-between">
         <h3 className="text-sm font-medium">Console</h3>
+        <a
+          href={CLI_DOCS_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs text-muted-foreground hover:text-foreground underline"
+        >
+          CLI docs ↗
+        </a>
       </div>
       <div
         ref={outputRef}
@@ -72,9 +121,14 @@ export function ConsolePane({
           ref={inputRef}
           type="text"
           autoComplete="off"
+          autoCapitalize="none"
           name="console-input"
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={(e) => {
+            setInput(e.target.value);
+            setHistoryIndex(null);
+          }}
+          onKeyDown={handleKeyDown}
           placeholder="CLI command..."
           aria-label="Console command"
           disabled={loading}
