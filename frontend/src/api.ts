@@ -44,8 +44,20 @@ import type {
   TraceResponse,
   UnreadCounts,
 } from './types';
+import { triggerAuthRedirect } from './utils/authRedirect';
 
 const API_BASE = './api';
+
+/** Thrown by fetchJson on a non-ok response; carries the HTTP status code. */
+export class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
 
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   const hasBody = options?.body !== undefined;
@@ -68,7 +80,12 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
     } catch {
       // Not JSON, use raw text
     }
-    throw new Error(errorMessage);
+    if (res.status === 401 || res.status === 403) {
+      // Likely an expired reverse-proxy session (RemoteTerm itself has no
+      // auth UI) — see utils/authRedirect.ts and issue #346.
+      triggerAuthRedirect();
+    }
+    throw new ApiError(errorMessage, res.status);
   }
   return res.json();
 }
@@ -81,6 +98,11 @@ export function isAbortError(err: unknown): boolean {
   }
   // Also check for Error with AbortError name (for compatibility)
   return err instanceof Error && err.name === 'AbortError';
+}
+
+/** Check if an error is a 401/403 ApiError (likely an expired reverse-proxy session). */
+export function isAuthError(err: unknown): boolean {
+  return err instanceof ApiError && (err.status === 401 || err.status === 403);
 }
 
 interface DecryptResult {

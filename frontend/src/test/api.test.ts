@@ -2,8 +2,9 @@
  * Tests for API utilities.
  */
 
-import { describe, it, expect, vi, afterEach } from 'vitest';
-import { isAbortError, api } from '../api';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
+import { isAbortError, isAuthError, ApiError, api } from '../api';
+import { resetAuthRedirectGuard, setAuthRedirectUrl } from '../utils/authRedirect';
 
 describe('isAbortError', () => {
   it('returns true for AbortError', () => {
@@ -170,6 +171,90 @@ describe('fetchJson (via api methods)', () => {
       });
 
       await expect(api.getHealth()).rejects.toThrow('{"error": "validation failed"}');
+    });
+  });
+
+  describe('401/403 handling (issue #346)', () => {
+    let reloadSpy: ReturnType<typeof vi.fn>;
+    let originalLocation: Location;
+
+    beforeEach(() => {
+      localStorage.clear();
+      resetAuthRedirectGuard();
+      reloadSpy = vi.fn();
+      originalLocation = window.location;
+      Object.defineProperty(window, 'location', {
+        configurable: true,
+        value: { ...originalLocation, reload: reloadSpy, href: 'http://localhost/' },
+      });
+    });
+
+    afterEach(() => {
+      Object.defineProperty(window, 'location', {
+        configurable: true,
+        value: originalLocation,
+      });
+    });
+
+    it('throws an ApiError carrying the status code', async () => {
+      installMockFetch();
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        statusText: 'Unauthorized',
+        text: () => Promise.resolve('{"detail": "Not authenticated"}'),
+      });
+
+      const err = await api.getHealth().catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ApiError);
+      expect((err as ApiError).status).toBe(401);
+      expect(isAuthError(err)).toBe(true);
+      expect(isAuthError(new Error('unrelated'))).toBe(false);
+    });
+
+    it.each([401, 403])(
+      'reloads the page on a %d with no redirect URL configured',
+      async (status) => {
+        installMockFetch();
+        mockFetch.mockResolvedValueOnce({
+          ok: false,
+          status,
+          statusText: 'Unauthorized',
+          text: () => Promise.resolve(''),
+        });
+
+        await api.getHealth().catch(() => {});
+        expect(reloadSpy).toHaveBeenCalledTimes(1);
+      }
+    );
+
+    it('navigates to the configured redirect URL on a 401', async () => {
+      setAuthRedirectUrl('/login');
+      installMockFetch();
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        statusText: 'Unauthorized',
+        text: () => Promise.resolve(''),
+      });
+
+      await api.getHealth().catch(() => {});
+      expect(window.location.href).toBe('/login');
+      expect(reloadSpy).not.toHaveBeenCalled();
+    });
+
+    it('does not redirect on a 422 or other non-auth error', async () => {
+      installMockFetch();
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 422,
+        statusText: 'Unprocessable Entity',
+        text: () => Promise.resolve(''),
+      });
+
+      await api.getHealth().catch(() => {});
+      expect(reloadSpy).not.toHaveBeenCalled();
+      expect(window.location.href).toBe('http://localhost/');
     });
   });
 

@@ -1,6 +1,15 @@
 import { useEffect, useRef, useCallback } from 'react';
 import type { Channel, HealthStatus, Contact, Message, MessagePath, RawPacket } from './types';
 import { parseWsEvent } from './wsEvents';
+import { api, isAuthError } from './api';
+import { triggerAuthRedirect } from './utils/authRedirect';
+
+// Browsers don't expose a rejected WebSocket handshake's HTTP status to JS —
+// a 401 from an expired reverse-proxy session and a dead server both surface
+// as onclose with the generic code 1006. After this many consecutive
+// reconnect failures, probe a real HTTP endpoint (which does return a real
+// status) to tell the two apart. See utils/authRedirect.ts and issue #346.
+const AUTH_PROBE_AFTER_FAILURES = 3;
 
 interface ErrorEvent {
   message: string;
@@ -37,6 +46,7 @@ export function useWebSocket(options: UseWebSocketOptions) {
   const reconnectTimeoutRef = useRef<number | null>(null);
   const shouldReconnectRef = useRef(true);
   const hasConnectedRef = useRef(false);
+  const failureCountRef = useRef(0);
 
   // Store options in ref to avoid stale closures in WebSocket handlers.
   // The onmessage callback captures this ref, and we keep the ref updated
@@ -70,6 +80,7 @@ export function useWebSocket(options: UseWebSocketOptions) {
         optionsRef.current.onReconnect?.();
       }
       hasConnectedRef.current = true;
+      failureCountRef.current = 0;
     };
 
     ws.onclose = () => {
@@ -78,6 +89,22 @@ export function useWebSocket(options: UseWebSocketOptions) {
 
       if (!shouldReconnectRef.current) {
         return;
+      }
+
+      failureCountRef.current += 1;
+      if (failureCountRef.current === AUTH_PROBE_AFTER_FAILURES) {
+        // Repeated failures in a row — could be an expired reverse-proxy
+        // session. Probe over HTTP, which does expose a real status code.
+        api.getHealth().catch((err) => {
+          if (isAuthError(err)) {
+            shouldReconnectRef.current = false;
+            if (reconnectTimeoutRef.current) {
+              clearTimeout(reconnectTimeoutRef.current);
+              reconnectTimeoutRef.current = null;
+            }
+            triggerAuthRedirect();
+          }
+        });
       }
 
       // Reconnect after 3 seconds

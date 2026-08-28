@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
@@ -7,7 +7,10 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="MCTerm" />
     <meta name="theme-color" content="#111419" />
-    <meta name="description" content="Web interface for MeshCore mesh radio networks. Send and receive messages, manage contacts and channels, and configure your radio." />
+    <meta
+      name="description"
+      content="Web interface for MeshCore mesh radio networks. Send and receive messages, manage contacts and channels, and configure your radio."
+    />
     <title>RemoteTerm for MeshCore</title>
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <link rel="icon" type="image/png" href="./favicon-96x96.png" sizes="96x96" />
@@ -22,27 +25,55 @@
       // Must be in <head> BEFORE the module script so the browser queues these
       // fetches before it discovers and starts downloading the JS bundle.
       // React hooks consume the promises via window.__prefetch.
-      var fetchJsonOrThrow = function(url) {
-        return fetch(url).then(function(response) {
-          if (response.ok) {
-            return response.json();
-          }
-          return response.text().then(function(rawError) {
-            var message = rawError || response.statusText || ('HTTP ' + response.status);
-            try {
-              var parsed = JSON.parse(rawError);
-              if (parsed && typeof parsed.detail === 'string' && parsed.detail.length > 0) {
-                message = parsed.detail;
-              }
-            } catch {
-              // Keep raw text fallback when body is not JSON.
+      // Duplicated from src/utils/authRedirect.ts (that module doesn't exist
+      // yet at this point in page load) — keep the key and fallback behavior
+      // in sync with that file if either changes. This is the earliest place
+      // a 401/403 (an expired reverse-proxy session) can be caught, since
+      // these fetches fire before any other request. See issue #346.
+      var AUTH_REDIRECT_KEY = 'remoteterm-auth-redirect-url';
+      var hasRedirectedForAuth = false;
+      var triggerAuthRedirectFromPrefetch = function () {
+        if (hasRedirectedForAuth) return;
+        hasRedirectedForAuth = true;
+        var url = null;
+        try {
+          url = localStorage.getItem(AUTH_REDIRECT_KEY);
+        } catch {
+          // localStorage may be unavailable
+        }
+        if (url) {
+          window.location.href = url;
+        } else {
+          window.location.reload();
+        }
+      };
+
+      var fetchJsonOrThrow = function (url) {
+        return fetch(url)
+          .then(function (response) {
+            if (response.ok) {
+              return response.json();
             }
-            throw new Error('Prefetch failed for ' + url + ': ' + message);
+            if (response.status === 401 || response.status === 403) {
+              triggerAuthRedirectFromPrefetch();
+            }
+            return response.text().then(function (rawError) {
+              var message = rawError || response.statusText || 'HTTP ' + response.status;
+              try {
+                var parsed = JSON.parse(rawError);
+                if (parsed && typeof parsed.detail === 'string' && parsed.detail.length > 0) {
+                  message = parsed.detail;
+                }
+              } catch {
+                // Keep raw text fallback when body is not JSON.
+              }
+              throw new Error('Prefetch failed for ' + url + ': ' + message);
+            });
+          })
+          .catch(function (err) {
+            console.error(err);
+            throw err;
           });
-        }).catch(function(err) {
-          console.error(err);
-          throw err;
-        });
       };
       window.__prefetch = {
         config: fetchJsonOrThrow('./api/radio/config'),

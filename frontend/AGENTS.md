@@ -328,7 +328,7 @@ jsdom has no layout engine, so none of this is observable from the vitest suite 
 
 ## WebSocket (`useWebSocket.ts`)
 
-- Auto reconnect (3s) with cleanup guard on unmount.
+- Auto reconnect (3s) with cleanup guard on unmount, except: after 3 consecutive failures it probes `GET /api/health` (browsers don't expose a rejected WS handshake's HTTP status), and if that comes back 401/403 it stops reconnecting and calls `triggerAuthRedirect()` instead (`utils/authRedirect.ts`, issue #346).
 - Heartbeat ping every 30s.
 - Incoming JSON is parsed through `wsEvents.ts`, which validates the top-level envelope and known event type strings, then casts payloads at the handler boundary. It does not schema-validate per-event payload shapes.
 - Event handlers: `health`, `message`, `contact`, `contact_resolved`, `channel`, `raw_packet`, `message_acked`, `contact_deleted`, `channel_deleted`, `error`, `success`, `pong` (ignored).
@@ -509,9 +509,10 @@ Traffic and sender figures use different denominators (all channels vs. decrypta
 
 ## Security Posture (intentional)
 
-- No authentication UI.
+- No authentication UI of its own (RemoteTerm's own optional basic auth aside).
 - Frontend assumes trusted network usage.
 - Bot editor intentionally allows arbitrary backend bot code configuration.
+- One exception: `utils/authRedirect.ts` reacts to a 401/403 from the API or WebSocket (an expired *external* reverse-proxy session, e.g. Authelia) by navigating to a user-configured URL or reloading — it doesn't add any auth of its own, it just stops the app from hanging silently behind one. See issue #346.
 
 ## Testing
 

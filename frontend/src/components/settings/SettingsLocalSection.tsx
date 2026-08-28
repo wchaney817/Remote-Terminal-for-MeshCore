@@ -56,6 +56,7 @@ import {
   getStatusDotPulseEnabled,
   setStatusDotPulseEnabled as saveStatusDotPulse,
 } from '../../utils/statusDotPulse';
+import { getAuthRedirectUrl, setAuthRedirectUrl } from '../../utils/authRedirect';
 
 /** Resolve a state key like "contact-abc123" or "channel-def456" to a display name. */
 function resolveConversationName(
@@ -251,6 +252,8 @@ export function SettingsLocalSection({
   const [fontScale, setFontScale] = useState(getSavedFontScale);
   const [fontScaleSlider, setFontScaleSlider] = useState(getSavedFontScale);
   const [fontScaleInput, setFontScaleInput] = useState(() => String(getSavedFontScale()));
+  const [authRedirectUrl, setAuthRedirectUrlState] = useState(getAuthRedirectUrl);
+  const [authRedirectError, setAuthRedirectError] = useState<string | null>(null);
 
   const commitFontScale = (nextScale: number) => {
     const normalized = setSavedFontScale(nextScale);
@@ -349,6 +352,29 @@ export function SettingsLocalSection({
         </select>
         <p className="text-[0.8125rem] text-muted-foreground">
           Controls how distances are shown throughout the app.
+        </p>
+      </div>
+
+      <Separator />
+
+      <div className="space-y-3">
+        <h3 className="text-base font-semibold tracking-tight">Sign-in Redirect</h3>
+        <Input
+          value={authRedirectUrl}
+          onChange={(e) => {
+            const url = e.target.value;
+            setAuthRedirectUrlState(url);
+            setAuthRedirectError(setAuthRedirectUrl(url));
+          }}
+          placeholder="e.g. /login or https://auth.example.com/"
+          aria-label="Sign-in redirect URL"
+          className={authRedirectError ? 'border-destructive' : undefined}
+        />
+        {authRedirectError && <p className="text-xs text-destructive">{authRedirectError}</p>}
+        <p className="text-[0.8125rem] text-muted-foreground">
+          If this RemoteTerm instance sits behind a reverse proxy that handles login, set the URL to
+          send you to when your session expires (a 401/403 from the API or WebSocket). Leave blank
+          to just reload the page instead.
         </p>
       </div>
 
@@ -470,15 +496,15 @@ export function SettingsLocalSection({
             <div className="space-y-1">
               <Label htmlFor="render-rich-payloads">Render GIFs &amp; Reactions</Label>
               <p className="text-[0.8125rem] text-muted-foreground">
-                MeshCore Open and MeshCore One clients send GIFs and emoji reactions as encoded
-                text (e.g. <code className="text-[0.75rem]">g:abc123</code>,{' '}
+                MeshCore Open and MeshCore One clients send GIFs and emoji reactions as encoded text
+                (e.g. <code className="text-[0.75rem]">g:abc123</code>,{' '}
                 <code className="text-[0.75rem]">r:1a2b:05</code>, or{' '}
                 <code className="text-[0.75rem]">👍@[Name]\nb45pc4ek</code>). When enabled, these
                 render as the GIF image or reaction emoji instead of the raw text. MeshCore Open
                 reactions show generically (the emoji isn't tied to a specific message); MeshCore
                 One reactions are resolved and shown as a badge on the message they target. GIFs
-                load from media.giphy.com, which reaches outside your local network and exposes
-                your IP to Giphy — so this is off by default.
+                load from media.giphy.com, which reaches outside your local network and exposes your
+                IP to Giphy — so this is off by default.
               </p>
             </div>
           </div>
