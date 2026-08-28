@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo, type FormEvent, type KeyboardEvent } from 'react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
+import { commandPrefix, matchCliCommands, type CliCommand } from '@/utils/cliCommands';
 
 const CLI_DOCS_URL = 'https://docs.meshcore.io/cli_commands/';
 
@@ -26,6 +27,20 @@ export function ConsolePane({
   const [historyIndex, setHistoryIndex] = useState<number | null>(null);
   const draftRef = useRef('');
 
+  // CLI command autocomplete dropdown
+  const suggestions = useMemo(() => matchCliCommands(input), [input]);
+  const [suggestionIndex, setSuggestionIndex] = useState<number | null>(null);
+  const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
+  const showSuggestions = suggestions.length > 0 && !suggestionsDismissed;
+
+  const acceptSuggestion = useCallback((cmd: CliCommand) => {
+    const prefix = commandPrefix(cmd.syntax);
+    const hasParams = prefix !== cmd.syntax;
+    setInput(hasParams ? `${prefix} ` : prefix);
+    setSuggestionIndex(null);
+    inputRef.current?.focus();
+  }, []);
+
   // Auto-scroll to bottom on new entries
   useEffect(() => {
     if (outputRef.current) {
@@ -48,6 +63,8 @@ export function ConsolePane({
       if (!trimmed || loading) return;
       setInput('');
       setHistoryIndex(null);
+      setSuggestionIndex(null);
+      setSuggestionsDismissed(false);
       draftRef.current = '';
       await onSend(trimmed);
     },
@@ -56,6 +73,29 @@ export function ConsolePane({
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLInputElement>) => {
+      if (showSuggestions) {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          setSuggestionIndex((prev) => (prev === null ? 0 : Math.min(prev + 1, suggestions.length - 1)));
+          return;
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          setSuggestionIndex((prev) => (prev === null ? suggestions.length - 1 : Math.max(prev - 1, 0)));
+          return;
+        }
+        if ((e.key === 'Tab' || e.key === 'Enter') && suggestionIndex !== null) {
+          e.preventDefault();
+          acceptSuggestion(suggestions[suggestionIndex]);
+          return;
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          setSuggestionsDismissed(true);
+          return;
+        }
+      }
+
       if (commandHistory.length === 0) return;
 
       if (e.key === 'ArrowUp') {
@@ -80,7 +120,7 @@ export function ConsolePane({
         }
       }
     },
-    [commandHistory, historyIndex, input]
+    [commandHistory, historyIndex, input, showSuggestions, suggestions, suggestionIndex, acceptSuggestion]
   );
 
   return (
@@ -116,28 +156,61 @@ export function ConsolePane({
         )}
         {loading && <div className="text-muted-foreground animate-pulse">...</div>}
       </div>
-      <form onSubmit={handleSubmit} className="flex gap-2 p-2 border-t border-border">
-        <Input
-          ref={inputRef}
-          type="text"
-          autoComplete="off"
-          autoCapitalize="none"
-          name="console-input"
-          value={input}
-          onChange={(e) => {
-            setInput(e.target.value);
-            setHistoryIndex(null);
-          }}
-          onKeyDown={handleKeyDown}
-          placeholder="CLI command..."
-          aria-label="Console command"
-          disabled={loading}
-          className="flex-1 font-mono text-sm"
-        />
-        <Button type="submit" size="sm" disabled={loading || !input.trimStart()}>
-          Send
-        </Button>
-      </form>
+      <div className="relative">
+        {showSuggestions && (
+          <ul
+            role="listbox"
+            aria-label="CLI command suggestions"
+            className="absolute bottom-full left-0 right-0 z-10 max-h-48 overflow-y-auto border-t border-border bg-popover text-popover-foreground shadow-md"
+          >
+            {suggestions.map((cmd, i) => (
+              <li
+                key={cmd.syntax}
+                role="option"
+                aria-selected={i === suggestionIndex}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  acceptSuggestion(cmd);
+                }}
+                onMouseEnter={() => setSuggestionIndex(i)}
+                className={`flex items-baseline gap-2 px-3 py-1.5 text-xs cursor-pointer ${
+                  i === suggestionIndex ? 'bg-accent text-accent-foreground' : ''
+                }`}
+              >
+                <span className="font-mono shrink-0">{cmd.syntax}</span>
+                <span className="text-muted-foreground truncate">{cmd.description}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <form onSubmit={handleSubmit} className="flex gap-2 p-2 border-t border-border">
+          <Input
+            ref={inputRef}
+            type="text"
+            autoComplete="off"
+            autoCapitalize="none"
+            name="console-input"
+            value={input}
+            onChange={(e) => {
+              setInput(e.target.value);
+              setHistoryIndex(null);
+              setSuggestionIndex(null);
+              setSuggestionsDismissed(false);
+            }}
+            onKeyDown={handleKeyDown}
+            onBlur={() => setSuggestionsDismissed(true)}
+            placeholder="CLI command..."
+            aria-label="Console command"
+            aria-autocomplete="list"
+            aria-expanded={showSuggestions}
+            disabled={loading}
+            className="flex-1 font-mono text-sm"
+          />
+          <Button type="submit" size="sm" disabled={loading || !input.trimStart()}>
+            Send
+          </Button>
+        </form>
+      </div>
     </div>
   );
 }
