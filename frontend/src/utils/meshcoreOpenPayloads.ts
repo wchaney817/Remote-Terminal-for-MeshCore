@@ -14,9 +14,17 @@
  *   lib/widgets/emoji_picker.dart
  * (github.com/zjs81/meshcore-open, dev branch).
  *
- * Reaction support here is intentionally "generic display only": we decode the
- * emoji from <index> and show it, but we do NOT resolve <hash> back to the
- * target message (that requires porting Dart's String.hashCode). See issue #291.
+ * Reactions target a message by <hash>, a 4-hex-char (16-bit) truncation of
+ * Dart's `String.hashCode` over `<senderTimestamp><senderName?><first 5 chars
+ * of the target's body>` (reaction_helper.dart computeReactionHash). Unlike
+ * MeshCore One's SHA-256-based hash, this is not a portable, spec'd
+ * algorithm — it's the Dart VM's internal string hash. See
+ * dartStringHashCode below for what makes this reliable enough to port, and
+ * MessageList.tsx for how a resolved hash is matched to a target message
+ * (nearest-preceding, since 16 bits collides far more readily than MeshCore
+ * One's 40-bit hash). Sending in this format is out of scope (see
+ * meshcoreOnePayloads.ts's module docs for why); we only resolve incoming
+ * reactions.
  */
 
 // --- Emoji table (order must match meshcore-open exactly for index compat) ---
@@ -95,14 +103,15 @@ const REACTION_PATTERN = /^r:([0-9a-f]{4}):([0-9a-f]{2})$/;
 export interface ParsedReaction {
   /** The decoded reaction emoji. */
   emoji: string;
-  /** 4-hex hash identifying the target message (not resolved here). */
+  /** 4-hex hash identifying the target message (not resolved here — see computeOpenReactionHash / MessageList.tsx). */
   targetHash: string;
 }
 
 /**
  * Parse a MeshCore Open reaction payload. Returns the decoded emoji and the
- * (unresolved) target-message hash, or null if the (trimmed) text is not a
- * valid `r:<hash>:<index>` payload or the index is out of range.
+ * target-message hash (still needing to be matched against a candidate
+ * message's own computeOpenReactionHash), or null if the (trimmed) text is
+ * not a valid `r:<hash>:<index>` payload or the index is out of range.
  */
 export function parseReaction(text: string): ParsedReaction | null {
   const match = REACTION_PATTERN.exec(text.trim());
@@ -112,6 +121,69 @@ export function parseReaction(text: string): ParsedReaction | null {
     return null;
   }
   return { emoji: REACTION_EMOJIS[index], targetHash: match[1] };
+}
+
+// --- Reaction target hash (Dart VM String.hashCode port) ---
+
+/**
+ * Port of the Dart VM's (AOT/JIT) `String.hashCode` — NOT dart2js's, which
+ * masks intermediate values to 29 bits every iteration instead of only at
+ * the end, and disagrees with the VM on the low 16 bits for the vast
+ * majority of inputs. MeshCore Open ships as a Flutter mobile app (Dart VM),
+ * so the VM variant is what we need.
+ *
+ * Ported from the Dart SDK (github.com/dart-lang/sdk):
+ *   runtime/vm/hash.h        CombineHashes / FinalizeHash
+ *   runtime/vm/object.h      StringHasher (feeds one UTF-16 code unit at a time)
+ * The algorithm is a fixed constant-seed hash (no per-process/per-isolate
+ * randomization) and has been unchanged since 2018, so it's stable to port.
+ * Verified bit-for-bit against a real `dart` run (Dart SDK 3.13.2) for a set
+ * of representative inputs — see meshcoreOpenPayloads.test.ts.
+ */
+export function dartStringHashCode(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) {
+    // UTF-16 code units, same as Dart's StringHasher — this means an astral
+    // character (e.g. an emoji) contributes two separate surrogate code
+    // units, matching Dart's String iteration exactly.
+    h = (h + s.charCodeAt(i)) >>> 0;
+    h = (h + ((h << 10) >>> 0)) >>> 0;
+    h = (h ^ (h >>> 6)) >>> 0;
+  }
+  h = (h + ((h << 3) >>> 0)) >>> 0;
+  h = (h ^ (h >>> 11)) >>> 0;
+  h = (h + ((h << 15) >>> 0)) >>> 0;
+  h &= 0x3fffffff; // kHashBits = 30
+  return h === 0 ? 1 : h; // Dart coerces a zero hash to 1
+}
+
+/**
+ * Compute a MeshCore Open reaction target hash: the low 16 bits of
+ * dartStringHashCode over `<senderTimestamp><senderName?><first 5 chars of
+ * the target message's body>`, as 4 lowercase hex chars. `senderName` is
+ * omitted for DMs (implicit sender), included for channel/group messages.
+ * `senderTimestamp`/`text` must be the *target* message's own sender
+ * timestamp and body — the same inputs a receiver hashes to resolve this
+ * reaction (see reaction_helper.dart computeReactionHash).
+ *
+ * `text.slice(0, 5)` deliberately indexes UTF-16 code units, matching Dart's
+ * `String.substring` — including splitting a surrogate pair if the target
+ * body starts with an astral character (e.g. an emoji) at that boundary. Do
+ * not "fix" this with code-point-aware slicing; it would stop matching
+ * meshcore-open's own hash.
+ */
+export function computeOpenReactionHash(
+  senderTimestamp: number,
+  senderName: string | null,
+  text: string
+): string {
+  const first5 = text.length >= 5 ? text.substring(0, 5) : text;
+  const input =
+    senderName !== null
+      ? `${senderTimestamp}${senderName}${first5}`
+      : `${senderTimestamp}${first5}`;
+  const hash = dartStringHashCode(input) & 0xffff;
+  return hash.toString(16).padStart(4, '0');
 }
 
 // --- Reply-mention prefix (@[senderName] <payload>) ---

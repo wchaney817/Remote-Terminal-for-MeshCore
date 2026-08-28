@@ -17,6 +17,7 @@ import {
   parseSenderFromText,
 } from '../utils/messageParser';
 import {
+  computeOpenReactionHash,
   giphyUrlForId,
   parseGif,
   parseReaction,
@@ -217,107 +218,159 @@ function renderMeshMapperPayload(
   );
 }
 
-// --- MeshCore One reactions (attached as badges, not shown as their own message) ---
+// --- Reactions (attached as badges, not shown as their own message) ---
+// Two independent, incompatible wire formats resolve into the same index:
+// MeshCore One's (meshcoreOnePayloads.ts) and MeshCore Open's
+// (meshcoreOpenPayloads.ts) — see zjs81/meshcore-open#452.
 
-interface MeshcoreOneReactionGroup {
+interface ReactionGroup {
   emoji: string;
   count: number;
   senderNames: string[];
 }
 
-interface MeshcoreOneReactionIndex {
+interface ReactionIndex {
   /** IDs of resolved reaction messages — hidden from the timeline, badge shown on their target instead. */
   hiddenMessageIds: Set<number>;
   /** Resolved reaction badges, keyed by the target message's id. */
-  reactionsByTargetId: Map<number, MeshcoreOneReactionGroup[]>;
+  reactionsByTargetId: Map<number, ReactionGroup[]>;
 }
 
-const EMPTY_REACTION_INDEX: MeshcoreOneReactionIndex = {
+const EMPTY_REACTION_INDEX: ReactionIndex = {
   hiddenMessageIds: new Set(),
   reactionsByTargetId: new Map(),
 };
 
-const EMPTY_REACTION_GROUPS: MeshcoreOneReactionGroup[] = [];
+const EMPTY_REACTION_GROUPS: ReactionGroup[] = [];
 
 // Extract a message's body the same way it's displayed: channel messages carry
-// a "SenderName: " wire prefix that MeshCore One's own hash does not include.
+// a "SenderName: " wire prefix that neither reaction format's hash includes.
 function extractMessageBody(msg: Message): string {
   return msg.type === 'PRIV' ? msg.text : parseSenderFromText(msg.text).content;
 }
 
+// A channel message's sender name (or null for a DM, where the sender is
+// implicit) — the same "who sent this" extraction used by both reaction
+// formats' hash inputs and by their reactor-name display.
+function channelOrDMSenderName(msg: Message): string | null {
+  if (msg.type === 'PRIV') return null;
+  return msg.sender_name || parseSenderFromText(msg.text).sender;
+}
+
+function addReactionToGroup(
+  reactionsByTargetId: Map<number, ReactionGroup[]>,
+  targetId: number,
+  emoji: string,
+  reactingSenderName: string | null
+) {
+  const groups = reactionsByTargetId.get(targetId) ?? [];
+  const existing = groups.find((g) => g.emoji === emoji);
+  if (existing) {
+    existing.count += 1;
+    if (reactingSenderName) existing.senderNames.push(reactingSenderName);
+  } else {
+    groups.push({ emoji, count: 1, senderNames: reactingSenderName ? [reactingSenderName] : [] });
+  }
+  reactionsByTargetId.set(targetId, groups);
+}
+
 /**
- * Build the MeshCore One reaction index for a conversation: which loaded
+ * Build the combined reaction index for a conversation: which loaded
  * messages are reactions (to hide from the timeline), and which resolved
- * badges attach to which target message (see meshcoreOnePayloads.ts for the
- * wire format and hashing). A reaction only resolves — and is only hidden —
- * when its target message is also currently loaded, so a reaction whose
- * target hasn't been paged in yet is left as an ordinary (unrecognized)
- * message instead of silently vanishing.
+ * badges attach to which target message. A reaction only resolves — and is
+ * only hidden — when its target message is also currently loaded, so a
+ * reaction whose target hasn't been paged in yet is left as an ordinary
+ * (unrecognized) message instead of silently vanishing. `messages` must be
+ * sorted oldest-first (see sortedMessages).
  */
-function computeMeshcoreOneReactionIndex(messages: Message[]): MeshcoreOneReactionIndex {
+function computeReactionIndex(messages: Message[]): ReactionIndex {
   if (messages.length === 0) return EMPTY_REACTION_INDEX;
 
   const bodies = new Map<number, string>();
   for (const msg of messages) {
     bodies.set(msg.id, extractMessageBody(msg));
   }
+  const isReaction = (msg: Message, body: string) =>
+    parseMeshcoreOneReaction(body, msg.type === 'PRIV') !== null || parseReaction(body) !== null;
 
-  // Pass 1: hash every non-reaction message that carries a sender timestamp
-  // (required input to the hash — see computeReactionHash).
-  const hashIndex = new Map<string, Message>();
+  // --- MeshCore One: hash every candidate message up front (order doesn't
+  // matter — its 40-bit hash makes a collision practically impossible), then
+  // resolve every reaction against that full index.
+  const mc1HashIndex = new Map<string, Message>();
   for (const msg of messages) {
     if (msg.sender_timestamp == null) continue;
     const body = bodies.get(msg.id) ?? '';
-    if (parseMeshcoreOneReaction(body, msg.type === 'PRIV')) continue;
+    if (isReaction(msg, body)) continue;
     const hash = computeReactionHash(body, msg.sender_timestamp);
-    if (!hashIndex.has(hash)) hashIndex.set(hash, msg); // first writer wins on a (near-impossible) collision
+    if (!mc1HashIndex.has(hash)) mc1HashIndex.set(hash, msg); // first writer wins on a (near-impossible) collision
   }
 
-  // Pass 2: resolve reactions against that index.
   const hiddenMessageIds = new Set<number>();
-  const reactionsByTargetId = new Map<number, MeshcoreOneReactionGroup[]>();
+  const reactionsByTargetId = new Map<number, ReactionGroup[]>();
   const seenDedupeKeys = new Set<string>();
+
+  // --- MeshCore Open: only 16 bits of hash, so collisions are plausible in
+  // a busy channel. Resolve against the nearest *preceding* candidate only
+  // (a reaction always follows its target chronologically), by walking
+  // messages in order and keeping a running hash -> message map that's
+  // overwritten as newer candidates appear — so a lookup always finds the
+  // most recent match, never a later one.
+  const openHashIndex = new Map<string, Message>();
 
   for (const msg of messages) {
     const body = bodies.get(msg.id) ?? '';
-    const reaction = parseMeshcoreOneReaction(body, msg.type === 'PRIV');
-    if (!reaction) continue;
 
-    const target = hashIndex.get(reaction.hash);
-    if (!target) continue;
+    const mc1Reaction = parseMeshcoreOneReaction(body, msg.type === 'PRIV');
+    const openReaction = mc1Reaction ? null : parseReaction(body);
 
-    hiddenMessageIds.add(msg.id);
-
-    const reactingSenderName =
-      msg.type === 'CHAN' ? msg.sender_name || parseSenderFromText(msg.text).sender : msg.sender_name;
-
-    // Dedupe by (targetHash, senderName, emoji) — a node may relay the same
-    // reaction more than once. The duplicate is still hidden, just not
-    // double-counted in the badge.
-    const dedupeKey = `${reaction.hash}|${reactingSenderName ?? ''}|${reaction.emoji}`;
-    if (seenDedupeKeys.has(dedupeKey)) continue;
-    seenDedupeKeys.add(dedupeKey);
-
-    const groups = reactionsByTargetId.get(target.id) ?? [];
-    const existing = groups.find((g) => g.emoji === reaction.emoji);
-    if (existing) {
-      existing.count += 1;
-      if (reactingSenderName) existing.senderNames.push(reactingSenderName);
-    } else {
-      groups.push({
-        emoji: reaction.emoji,
-        count: 1,
-        senderNames: reactingSenderName ? [reactingSenderName] : [],
-      });
+    if (!mc1Reaction && !openReaction) {
+      // An ordinary message — a candidate target for either format.
+      if (msg.sender_timestamp != null) {
+        const openHash = computeOpenReactionHash(
+          msg.sender_timestamp,
+          channelOrDMSenderName(msg),
+          body
+        );
+        openHashIndex.set(openHash, msg);
+      }
+      continue;
     }
-    reactionsByTargetId.set(target.id, groups);
+
+    if (mc1Reaction) {
+      const target = mc1HashIndex.get(mc1Reaction.hash);
+      if (!target) continue;
+      const reactingSenderName = channelOrDMSenderName(msg);
+      const dedupeKey = `mc1:${mc1Reaction.hash}|${reactingSenderName ?? ''}|${mc1Reaction.emoji}`;
+      if (seenDedupeKeys.has(dedupeKey)) {
+        hiddenMessageIds.add(msg.id); // still a recognized (duplicate) reaction — hide it
+        continue;
+      }
+      seenDedupeKeys.add(dedupeKey);
+      hiddenMessageIds.add(msg.id);
+      addReactionToGroup(reactionsByTargetId, target.id, mc1Reaction.emoji, reactingSenderName);
+      continue;
+    }
+
+    if (openReaction) {
+      const target = openHashIndex.get(openReaction.targetHash);
+      if (!target) continue;
+      const reactingSenderName = channelOrDMSenderName(msg);
+      const dedupeKey = `open:${openReaction.targetHash}|${target.id}|${reactingSenderName ?? ''}|${openReaction.emoji}`;
+      if (seenDedupeKeys.has(dedupeKey)) {
+        hiddenMessageIds.add(msg.id);
+        continue;
+      }
+      seenDedupeKeys.add(dedupeKey);
+      hiddenMessageIds.add(msg.id);
+      addReactionToGroup(reactionsByTargetId, target.id, openReaction.emoji, reactingSenderName);
+    }
   }
 
   return { hiddenMessageIds, reactionsByTargetId };
 }
 
 // Reaction badges attached below a message bubble, iMessage/Slack-style.
-function ReactionBadges({ groups }: { groups: MeshcoreOneReactionGroup[] }) {
+function ReactionBadges({ groups }: { groups: ReactionGroup[] }) {
   if (groups.length === 0) return null;
   return (
     <div className="mt-1 flex flex-wrap gap-1">
@@ -755,7 +808,12 @@ export function MessageList({
   }, [reactingMessageId]);
 
   const handleReact = useCallback(
-    async (targetSenderName: string | null, body: string, targetTimestamp: number, emoji: string) => {
+    async (
+      targetSenderName: string | null,
+      body: string,
+      targetTimestamp: number,
+      emoji: string
+    ) => {
       setReactingMessageId(null);
       if (!onSendMessage) return;
       try {
@@ -855,8 +913,7 @@ export function MessageList({
   );
 
   const { hiddenMessageIds: reactionHiddenIds, reactionsByTargetId } = useMemo(
-    () =>
-      renderRichPayloads ? computeMeshcoreOneReactionIndex(sortedMessages) : EMPTY_REACTION_INDEX,
+    () => (renderRichPayloads ? computeReactionIndex(sortedMessages) : EMPTY_REACTION_INDEX),
     [sortedMessages, renderRichPayloads]
   );
   /**
@@ -1695,11 +1752,7 @@ export function MessageList({
                       ) : (
                         renderMeshMapperPayload(content, radioName, onChannelReferenceClick) ||
                         (renderRichPayloads &&
-                          renderMeshcoreOpenPayload(
-                            content,
-                            radioName,
-                            onChannelReferenceClick
-                          )) ||
+                          renderMeshcoreOpenPayload(content, radioName, onChannelReferenceClick)) ||
                         content.split('\n').map((line, i, arr) => (
                           <span key={i}>
                             {renderTextWithMentions(line, radioName, onChannelReferenceClick)}
@@ -1712,7 +1765,12 @@ export function MessageList({
                         <ReactionPopup
                           ref={reactionPopupRef}
                           onPick={(emoji) =>
-                            void handleReact(channelSenderName, content, msg.sender_timestamp!, emoji)
+                            void handleReact(
+                              channelSenderName,
+                              content,
+                              msg.sender_timestamp!,
+                              emoji
+                            )
                           }
                         />
                       )}

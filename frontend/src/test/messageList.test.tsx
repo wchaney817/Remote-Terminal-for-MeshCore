@@ -702,3 +702,140 @@ describe('MessageList MeshCore One reactions & replies', () => {
     }
   });
 });
+
+describe('MessageList MeshCore Open reactions (issue #354)', () => {
+  beforeEach(() => {
+    scrollIntoViewMock.mockReset();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoViewMock,
+      writable: true,
+    });
+    Object.defineProperty(HTMLElement.prototype, 'getBoundingClientRect', {
+      configurable: true,
+      value: originalGetBoundingClientRect,
+      writable: true,
+    });
+  });
+
+  function renderWithRichPayloads(messages: Message[], enabled: boolean) {
+    return render(
+      <RichPayloadProvider renderRichPayloads={enabled} setRenderRichPayloads={() => {}}>
+        <MessageList messages={messages} contacts={[]} loading={false} />
+      </RichPayloadProvider>
+    );
+  }
+
+  // "Hello there" from Alice @ sender_timestamp 1700000000 -> Dart VM
+  // dartStringHashCode("1700000000AliceHello") & 0xffff -> "44ed" (verified
+  // against a real Dart run — see meshcoreOpenPayloads.test.ts).
+  const targetMessage = createMessage({
+    id: 30,
+    text: 'Alice: Hello there',
+    sender_name: 'Alice',
+    sender_timestamp: 1700000000,
+    received_at: 1700000001,
+  });
+  const reactionMessage = createMessage({
+    id: 31,
+    text: 'Bob: r:44ed:00',
+    sender_name: 'Bob',
+    sender_timestamp: 1700000005,
+    received_at: 1700000006,
+  });
+
+  it('hides a resolved reaction message and shows it as a badge on its target', () => {
+    const { container } = renderWithRichPayloads([targetMessage, reactionMessage], true);
+
+    expect(screen.getByText('Hello there')).toBeInTheDocument();
+    expect(screen.getByText('👍')).toBeInTheDocument();
+    expect(container.querySelector('[data-message-id="31"]')).not.toBeInTheDocument();
+  });
+
+  it('leaves an unresolved reaction (unknown target hash) visible with generic "reacted" text', () => {
+    const unresolved = createMessage({
+      id: 32,
+      text: 'Bob: r:0000:00',
+      sender_name: 'Bob',
+      sender_timestamp: 1700000005,
+      received_at: 1700000006,
+    });
+
+    const { container } = renderWithRichPayloads([targetMessage, unresolved], true);
+
+    expect(container.querySelector('[data-message-id="32"]')).toBeInTheDocument();
+    expect(screen.getByText('reacted')).toBeInTheDocument();
+  });
+
+  it('does not hide or badge reactions when rich payloads are disabled', () => {
+    const { container } = renderWithRichPayloads([targetMessage, reactionMessage], false);
+
+    expect(container.querySelector('[data-message-id="31"]')).toBeInTheDocument();
+    expect(screen.getByText('r:44ed:00', { exact: false })).toBeInTheDocument();
+  });
+
+  it('resolves a DM reaction (implicit sender, no name in the hash input)', () => {
+    // "Hello there" @ sender_timestamp 1700000000, DM (senderName omitted)
+    // -> "b95a" (verified against a real Dart run).
+    const dmTarget = createMessage({
+      id: 33,
+      type: 'PRIV',
+      text: 'Hello there',
+      sender_name: null,
+      sender_timestamp: 1700000000,
+      received_at: 1700000001,
+    });
+    const dmReaction = createMessage({
+      id: 34,
+      type: 'PRIV',
+      text: 'r:b95a:00',
+      sender_name: null,
+      sender_timestamp: 1700000005,
+      received_at: 1700000006,
+    });
+
+    const { container } = renderWithRichPayloads([dmTarget, dmReaction], true);
+
+    expect(screen.getByText('👍')).toBeInTheDocument();
+    expect(container.querySelector('[data-message-id="34"]')).not.toBeInTheDocument();
+  });
+
+  it('resolves a 16-bit hash collision to the nearest preceding candidate, not an earlier one', () => {
+    // Two distinct channel messages that happen to collide on the same
+    // 16-bit hash ("e5ff") — both "Hello there" from Alice, at different
+    // sender_timestamps (verified against a real Dart run).
+    const earlierCandidate = createMessage({
+      id: 40,
+      text: 'Alice: Hello there',
+      sender_name: 'Alice',
+      sender_timestamp: 1700000515,
+      received_at: 1700000516,
+    });
+    const laterCandidate = createMessage({
+      id: 41,
+      text: 'Alice: Hello there',
+      sender_name: 'Alice',
+      sender_timestamp: 1700000527,
+      received_at: 1700000528,
+    });
+    const reaction = createMessage({
+      id: 42,
+      text: 'Bob: r:e5ff:00',
+      sender_name: 'Bob',
+      sender_timestamp: 1700000530,
+      received_at: 1700000531,
+    });
+
+    const { container } = renderWithRichPayloads(
+      [earlierCandidate, laterCandidate, reaction],
+      true
+    );
+
+    // Badge attaches to the nearer (later) candidate, id 41.
+    const laterBubble = container.querySelector('[data-message-id="41"]')!;
+    expect(laterBubble.textContent).toContain('👍');
+    const earlierBubble = container.querySelector('[data-message-id="40"]')!;
+    expect(earlierBubble.textContent).not.toContain('👍');
+    expect(container.querySelector('[data-message-id="42"]')).not.toBeInTheDocument();
+  });
+});
