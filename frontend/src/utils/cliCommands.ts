@@ -1,5 +1,11 @@
-// Static reference of the MeshCore repeater/companion CLI, sourced from
-// https://docs.meshcore.io/cli_commands/ (the firmware has no `help` command of its own).
+// Static reference of the MeshCore repeater/companion CLI, sourced from the canonical
+// https://github.com/meshcore-dev/MeshCore/blob/main/docs/cli_commands.md
+// (the firmware has no `help` command of its own).
+//
+// A few commands are marked "(serial only)" in that source — they're not usable over
+// the RF admin CLI link this console talks over, only via a direct USB serial connection
+// to the device. They're kept in the list (still useful reference/hint text) but flagged
+// so the description doesn't imply they'll work here.
 export interface CliCommand {
   syntax: string;
   description: string;
@@ -17,9 +23,9 @@ export const CLI_COMMANDS: CliCommand[] = [
   { category: 'Operational', syntax: 'advert', description: 'Send a flood advertisement' },
   { category: 'Operational', syntax: 'advert.zerohop', description: 'Send a zero-hop advertisement' },
   { category: 'Operational', syntax: 'start ota', description: 'Initiate Over-The-Air firmware update' },
-  { category: 'Operational', syntax: 'erase', description: 'Factory reset the node' },
+  { category: 'Operational', syntax: 'erase', description: 'Factory reset the node (destructive, serial only)' },
 
-  { category: 'Neighbors', syntax: 'neighbors', description: 'List nearby repeater neighbors' },
+  { category: 'Neighbors', syntax: 'neighbors', description: 'List the 8 most recent nearby neighbors' },
   { category: 'Neighbors', syntax: 'neighbor.remove <pubkey_prefix>', description: 'Remove a neighbor from list' },
   { category: 'Neighbors', syntax: 'discover.neighbors', description: 'Discover zero hop neighbors' },
 
@@ -60,7 +66,7 @@ export const CLI_COMMANDS: CliCommand[] = [
   { category: 'System', syntax: 'set lat <degrees>', description: 'Set latitude' },
   { category: 'System', syntax: 'get lon', description: 'View longitude' },
   { category: 'System', syntax: 'set lon <degrees>', description: 'Set longitude' },
-  { category: 'System', syntax: 'get prv.key', description: 'View private key' },
+  { category: 'System', syntax: 'get prv.key', description: 'View private key (serial only)' },
   { category: 'System', syntax: 'set prv.key <private_key>', description: 'Set private key' },
   { category: 'System', syntax: 'password <new_password>', description: 'Change admin password' },
   { category: 'System', syntax: 'get guest.password', description: 'View guest password' },
@@ -111,7 +117,7 @@ export const CLI_COMMANDS: CliCommand[] = [
   { category: 'Routing', syntax: 'set flood.max.advert <value>', description: 'Set max hops for advert flood' },
 
   { category: 'ACL', syntax: 'setperm <pubkey> <permissions>', description: 'Add or update companion permissions' },
-  { category: 'ACL', syntax: 'get acl', description: 'Display current ACL entries' },
+  { category: 'ACL', syntax: 'get acl', description: 'Display current ACL entries (serial only)' },
   { category: 'ACL', syntax: 'get allow.read.only', description: 'View read-only flag' },
   { category: 'ACL', syntax: 'set allow.read.only <state>', description: 'Set read-only flag' },
 
@@ -128,8 +134,8 @@ export const CLI_COMMANDS: CliCommand[] = [
   { category: 'Region', syntax: 'region put <name> [parent_name]', description: 'Create new region' },
   { category: 'Region', syntax: 'region def <token> [<token> ...]', description: 'Define region hierarchy' },
   { category: 'Region', syntax: 'region remove <name>', description: 'Delete region' },
-  { category: 'Region', syntax: 'region list <filter>', description: 'Display filtered regions' },
-  { category: 'Region', syntax: 'region', description: 'Dump all regions and flood permissions' },
+  { category: 'Region', syntax: 'region list <filter>', description: 'Display filtered regions (serial only)' },
+  { category: 'Region', syntax: 'region', description: 'Dump all regions and flood permissions (serial only)' },
 
   { category: 'GPS', syntax: 'gps', description: 'View GPS state' },
   { category: 'GPS', syntax: 'gps <state>', description: 'Enable or disable GPS' },
@@ -156,7 +162,7 @@ export const CLI_COMMANDS: CliCommand[] = [
   { category: 'Bridge', syntax: 'get bridge.secret', description: 'View ESP-Now secret' },
   { category: 'Bridge', syntax: 'set bridge.secret <secret>', description: 'Set ESP-Now secret' },
 
-  { category: 'Power', syntax: 'get bootloader.ver', description: 'Display bootloader version' },
+  { category: 'Power', syntax: 'get bootloader.ver', description: 'Display bootloader version (nRF52 only)' },
   { category: 'Power', syntax: 'get pwrmgt.support', description: 'Display power management support' },
   { category: 'Power', syntax: 'get pwrmgt.source', description: 'Display current power source' },
   { category: 'Power', syntax: 'get pwrmgt.bootreason', description: 'Display boot reset reasons' },
