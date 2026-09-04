@@ -9,6 +9,7 @@ import type {
   ContactAnalytics,
   ContactAdvertPathSummary,
   ContactTelemetryResponse,
+  CoreScopeAnalysis,
   FanoutConfig,
   HealthStatus,
   MaintenanceResult,
@@ -309,6 +310,10 @@ export const api = {
 
   // Packets
   getPacket: (packetId: number) => fetchJson<RawPacket>(`/packets/${packetId}`),
+  // Personal-fork addition (not upstream): on-demand lookup against NTXMesh's
+  // community CoreScope instance. Only call this from an explicit user click.
+  getPacketCoreScopeAnalysis: (packetId: number) =>
+    fetchJson<CoreScopeAnalysis>(`/packets/${packetId}/coreScope`),
   getUndecryptedPacketCount: () => fetchJson<{ count: number }>('/packets/undecrypted/count'),
   // Personal-fork addition (not upstream): backfill the live packet feed from history.
   // payloadTypes are backend PayloadType enum names (e.g. "GROUP_TEXT"), not the

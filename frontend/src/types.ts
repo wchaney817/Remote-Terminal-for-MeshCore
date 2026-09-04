@@ -377,6 +377,25 @@ export interface RawPacket {
   region?: string | null;
 }
 
+export interface CoreScopeObserver {
+  observer_name: string | null;
+  rssi: number | null;
+  snr: number | null;
+  path_hex: string | null;
+  heard_at: string | null;
+}
+
+/** Result of looking a packet up on NTXMesh's community CoreScope instance —
+ * see PacketDetails' CoreScope section in RawPacketDetailModal. Fork-only. */
+export interface CoreScopeAnalysis {
+  found: boolean;
+  packet_hash: string;
+  observation_count: number;
+  resolved_path: string[];
+  observers: CoreScopeObserver[];
+  source: string;
+}
+
 export interface AppSettings {
   max_radio_contacts: number;
   auto_decrypt_dm_on_advert: boolean;

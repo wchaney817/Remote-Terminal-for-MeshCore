@@ -4,13 +4,21 @@ from sqlite3 import OperationalError
 from typing import NamedTuple
 
 import aiosqlite
+import httpx
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 
 from app.database import db
 from app.decoder import PayloadType, parse_packet, try_decrypt_packet_with_channel_key
-from app.models import RawPacketBroadcast, RawPacketDecryptedInfo, RawPacketDetail
+from app.models import (
+    CoreScopeAnalysis,
+    CoreScopeObserver,
+    RawPacketBroadcast,
+    RawPacketDecryptedInfo,
+    RawPacketDetail,
+)
 from app.packet_processor import create_message_from_decrypted, run_historical_dm_decryption
+from app.path_utils import calculate_packet_hash
 from app.region_resolver import resolve_region
 from app.repository import (
     AppSettingsRepository,
@@ -316,6 +324,81 @@ async def get_raw_packet(packet_id: int) -> RawPacketDetail:
         decrypted_info=extras.decrypted_info,
         transport_code=extras.transport_code,
         region=extras.region,
+    )
+
+
+_CORESCOPE_BASE = "https://ntxmesh.dhovin.me/api"
+
+
+@router.get("/{packet_id}/coreScope", response_model=CoreScopeAnalysis)
+async def get_coreScope_analysis(packet_id: int) -> CoreScopeAnalysis:
+    """Look up this packet on NTXMesh's community CoreScope instance to see who
+    else in the region independently heard it.
+
+    This computes the same path-invariant packet hash MeshCore firmware uses
+    for dedup (see calculate_packet_hash) and queries CoreScope by that hash —
+    CoreScope is community infrastructure run by NTXMesh, not ours, so this is
+    a manual, on-demand lookup triggered by a user click in the packet
+    inspector, never automatic or bulk (fork-only, not upstream).
+    """
+    packet_row = await RawPacketRepository.get_by_id(packet_id)
+    if packet_row is None:
+        raise HTTPException(status_code=404, detail="Raw packet not found")
+    _, packet_data, _, _ = packet_row
+
+    packet_hash = calculate_packet_hash(packet_data)
+
+    async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
+        try:
+            resp = await client.get(
+                f"{_CORESCOPE_BASE}/packets", params={"hash": packet_hash, "limit": 1}
+            )
+            resp.raise_for_status()
+            packets = resp.json().get("packets") or []
+        except httpx.HTTPError as exc:
+            logger.warning("CoreScope lookup failed for hash %s: %s", packet_hash, exc)
+            return CoreScopeAnalysis(found=False, packet_hash=packet_hash)
+
+        if not packets:
+            return CoreScopeAnalysis(found=False, packet_hash=packet_hash)
+
+        match = packets[0]
+        observation_count = match.get("observation_count", 1)
+        observers = [
+            CoreScopeObserver(
+                observer_name=match.get("observer_name"),
+                rssi=match.get("rssi"),
+                snr=match.get("snr"),
+                path_hex=match.get("path_json"),
+                heard_at=match.get("timestamp"),
+            )
+        ]
+
+        if observation_count > 1:
+            try:
+                trace_resp = await client.get(f"{_CORESCOPE_BASE}/traces/{packet_hash}")
+                trace_resp.raise_for_status()
+                traces = trace_resp.json().get("traces") or []
+                if traces:
+                    observers = [
+                        CoreScopeObserver(
+                            observer_name=t.get("observer_name"),
+                            rssi=t.get("rssi"),
+                            snr=t.get("snr"),
+                            path_hex=t.get("path_json"),
+                            heard_at=t.get("time"),
+                        )
+                        for t in traces
+                    ]
+            except httpx.HTTPError as exc:
+                logger.warning("CoreScope trace lookup failed for hash %s: %s", packet_hash, exc)
+
+    return CoreScopeAnalysis(
+        found=True,
+        packet_hash=packet_hash,
+        observation_count=observation_count,
+        resolved_path=match.get("resolved_path") or [],
+        observers=observers,
     )
 
 

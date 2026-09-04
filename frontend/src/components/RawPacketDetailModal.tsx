@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ChannelCrypto, PayloadType } from '@michaelhart/meshcore-decoder';
 
-import type { Channel, RawPacket } from '../types';
+import { api } from '../api';
+import type { Channel, CoreScopeAnalysis, RawPacket } from '../types';
 import { cn } from '@/lib/utils';
 import {
   createDecoderOptions,
@@ -617,6 +618,95 @@ function FieldSection({
   );
 }
 
+type CoreScopeState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'error'; message: string }
+  | { status: 'done'; result: CoreScopeAnalysis };
+
+// Personal-fork addition (not upstream): on-demand lookup against NTXMesh's
+// community CoreScope instance to see who else in the region heard this
+// packet. Fetched only on click — never automatically or in bulk, since
+// CoreScope is infrastructure someone else runs, not ours.
+function CoreScopePanel({ packetId }: { packetId: number }) {
+  const [state, setState] = useState<CoreScopeState>({ status: 'idle' });
+
+  const handleCheck = useCallback(async () => {
+    setState({ status: 'loading' });
+    try {
+      const result = await api.getPacketCoreScopeAnalysis(packetId);
+      setState({ status: 'done', result });
+    } catch (err) {
+      setState({ status: 'error', message: err instanceof Error ? err.message : 'Lookup failed' });
+    }
+  }, [packetId]);
+
+  return (
+    <div className="mt-3 rounded-lg border border-border/70 bg-card/70 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-xl font-semibold text-foreground">Who heard this</div>
+          <div className="text-[0.8125rem] text-muted-foreground">
+            One-off lookup against NTXMesh's community CoreScope instance — not automatic, not
+            cached.
+          </div>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={handleCheck}
+          disabled={state.status === 'loading'}
+        >
+          {state.status === 'loading' ? 'Checking...' : 'Check CoreScope'}
+        </Button>
+      </div>
+
+      {state.status === 'error' ? (
+        <div className="mt-2.5 text-sm text-destructive">{state.message}</div>
+      ) : null}
+
+      {state.status === 'done' && !state.result.found ? (
+        <div className="mt-2.5 text-sm text-muted-foreground">
+          Not seen by NTXMesh's observer network (hash {state.result.packet_hash}).
+        </div>
+      ) : null}
+
+      {state.status === 'done' && state.result.found ? (
+        <div className="mt-2.5 space-y-2">
+          <div className="text-sm text-foreground">
+            Heard by <span className="font-semibold">{state.result.observation_count}</span>{' '}
+            independent observer{state.result.observation_count === 1 ? '' : 's'} ·{' '}
+            {state.result.resolved_path.length} hop
+            {state.result.resolved_path.length === 1 ? '' : 's'} resolved
+          </div>
+          <div className="space-y-1">
+            {state.result.observers.map((observer, i) => (
+              <div
+                key={i}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/60 bg-background/35 px-2.5 py-1.5 text-sm"
+              >
+                <span className="font-medium text-foreground">
+                  {observer.observer_name ?? 'Unknown observer'}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {[
+                    observer.rssi !== null ? `RSSI ${observer.rssi} dBm` : null,
+                    observer.snr !== null ? `SNR ${observer.snr} dB` : null,
+                    observer.heard_at,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function RawPacketInspectionPanel({
   packet,
   channels,
@@ -768,6 +858,8 @@ export function RawPacketInspectionPanel({
           />
         </div>
       </div>
+
+      {packet.id >= 0 ? <CoreScopePanel packetId={packet.id} /> : null}
 
       <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
         <FieldSection

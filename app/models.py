@@ -523,6 +523,33 @@ class RawPacketDetail(BaseModel):
     )
 
 
+class CoreScopeObserver(BaseModel):
+    """One independent station that reported hearing a packet, per CoreScope."""
+
+    observer_name: str | None = None
+    rssi: float | None = None
+    snr: float | None = None
+    path_hex: str | None = Field(default=None, description="Hop path as seen by this observer")
+    heard_at: str | None = None
+
+
+class CoreScopeAnalysis(BaseModel):
+    """Result of looking up a packet's MeshCore hash against NTXMesh's CoreScope
+    instance (https://ntxmesh.dhovin.me) — community infrastructure, not ours.
+
+    Fork-only (not upstream): this is a live, on-demand outbound call to a
+    third party, triggered only by an explicit user action in the raw packet
+    inspector. It must never be called automatically or in bulk.
+    """
+
+    found: bool
+    packet_hash: str
+    observation_count: int = 0
+    resolved_path: list[str] = Field(default_factory=list)
+    observers: list[CoreScopeObserver] = Field(default_factory=list)
+    source: str = "https://ntxmesh.dhovin.me"
+
+
 class SendMessageRequest(BaseModel):
     text: str = Field(min_length=1)
 
