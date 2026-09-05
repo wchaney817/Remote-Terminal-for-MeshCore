@@ -1,11 +1,28 @@
-// Static reference of the MeshCore repeater/companion CLI, sourced from the canonical
-// https://github.com/meshcore-dev/MeshCore/blob/main/docs/cli_commands.md
-// (the firmware has no `help` command of its own).
+// Static reference of the MeshCore repeater/companion CLI. Sourced from the canonical
+// https://github.com/meshcore-dev/MeshCore/blob/main/docs/cli_commands.md, then
+// cross-checked against the actual firmware source (src/helpers/CommonCLI.cpp and the
+// examples/simple_* role handlers) on 2026-09-04 after a community-sourced reference
+// listed conflicting details for a few commands. Notable corrections that fell out of
+// that verification:
+//   - `stats-core`/`stats-radio`/`stats-packets` and bare `log` are gated by
+//     `sender_timestamp == 0` in CommonCLI.cpp — i.e. serial-only, same as `erase`.
+//     The canonical docs page doesn't call this out for these four.
+//   - `set freq`/`set prv.key` are also `sender_timestamp == 0`-gated (serial-only),
+//     not just their `get` counterparts.
+//   - `multi.acks` is a 0/1 boolean flag (`constrain(_prefs->multi_acks, 0, 1)` in
+//     CommonCLI.cpp), not an arbitrary redundant-ACK count as a community CLI writeup
+//     claimed — verified by reading the actual prefs-clamping code.
+//   - `loop.detect`/`path.hash.mode` take a fixed enum, confirmed against the parser.
+//   - Sensor-role `io` GPIO commands exist (examples/simple_sensor/SensorMesh.cpp) but
+//     aren't in the canonical docs page at all.
 //
-// A few commands are marked "(serial only)" in that source — they're not usable over
-// the RF admin CLI link this console talks over, only via a direct USB serial connection
-// to the device. They're kept in the list (still useful reference/hint text) but flagged
-// so the description doesn't imply they'll work here.
+// The firmware has no `help` command of its own — this file is the only reference
+// available at the console.
+//
+// A few commands are marked "(serial only)" — they're not usable over the RF admin CLI
+// link this console talks over, only via a direct USB serial connection to the device.
+// They're kept in the list (still useful reference/hint text) but flagged so the
+// description doesn't imply they'll work here.
 export interface CliCommand {
   syntax: string;
   description: string;
@@ -30,14 +47,14 @@ export const CLI_COMMANDS: CliCommand[] = [
   { category: 'Neighbors', syntax: 'discover.neighbors', description: 'Discover zero hop neighbors' },
 
   { category: 'Statistics', syntax: 'clear stats', description: 'Reset all statistics counters' },
-  { category: 'Statistics', syntax: 'stats-core', description: 'Display battery, uptime, queue, debug flags' },
-  { category: 'Statistics', syntax: 'stats-radio', description: 'Display noise floor, RSSI, SNR, airtime, errors' },
-  { category: 'Statistics', syntax: 'stats-packets', description: 'Display received and sent packet counters' },
+  { category: 'Statistics', syntax: 'stats-core', description: 'Display battery, uptime, queue, debug flags (serial only)' },
+  { category: 'Statistics', syntax: 'stats-radio', description: 'Display noise floor, RSSI, SNR, airtime, errors (serial only)' },
+  { category: 'Statistics', syntax: 'stats-packets', description: 'Display received and sent packet counters (serial only)' },
 
   { category: 'Logging', syntax: 'log start', description: 'Begin capturing rx log to storage' },
   { category: 'Logging', syntax: 'log stop', description: 'End capturing rx log to storage' },
   { category: 'Logging', syntax: 'log erase', description: 'Delete captured log' },
-  { category: 'Logging', syntax: 'log', description: 'Print captured log to terminal' },
+  { category: 'Logging', syntax: 'log', description: 'Print captured log to terminal (serial only)' },
 
   { category: 'Info', syntax: 'ver', description: 'Show firmware version' },
   { category: 'Info', syntax: 'board', description: 'Display hardware name' },
@@ -52,7 +69,7 @@ export const CLI_COMMANDS: CliCommand[] = [
     description: 'Temporarily change radio settings',
   },
   { category: 'Radio', syntax: 'get freq', description: 'View frequency setting' },
-  { category: 'Radio', syntax: 'set freq <frequency>', description: 'Set frequency' },
+  { category: 'Radio', syntax: 'set freq <frequency>', description: 'Set frequency (serial only, reboot to apply)' },
   { category: 'Radio', syntax: 'get radio.rxgain', description: 'View rx boosted gain mode' },
   { category: 'Radio', syntax: 'set radio.rxgain <state>', description: 'Set rx boosted gain mode' },
   { category: 'Radio', syntax: 'get radio.fem.rxgain', description: 'View LoRa FEM rx gain state' },
@@ -67,7 +84,7 @@ export const CLI_COMMANDS: CliCommand[] = [
   { category: 'System', syntax: 'get lon', description: 'View longitude' },
   { category: 'System', syntax: 'set lon <degrees>', description: 'Set longitude' },
   { category: 'System', syntax: 'get prv.key', description: 'View private key (serial only)' },
-  { category: 'System', syntax: 'set prv.key <private_key>', description: 'Set private key' },
+  { category: 'System', syntax: 'set prv.key <private_key>', description: 'Set private key (serial only)' },
   { category: 'System', syntax: 'password <new_password>', description: 'Change admin password' },
   { category: 'System', syntax: 'get guest.password', description: 'View guest password' },
   { category: 'System', syntax: 'set guest.password <password>', description: 'Set guest password' },
@@ -84,9 +101,13 @@ export const CLI_COMMANDS: CliCommand[] = [
   { category: 'Routing', syntax: 'get repeat', description: 'View repeat flag' },
   { category: 'Routing', syntax: 'set repeat <state>', description: 'Set repeat flag' },
   { category: 'Routing', syntax: 'get path.hash.mode', description: 'View advert path hash size' },
-  { category: 'Routing', syntax: 'set path.hash.mode <value>', description: 'Set advert path hash size' },
+  { category: 'Routing', syntax: 'set path.hash.mode <0|1|2>', description: 'Set advert path hash size' },
   { category: 'Routing', syntax: 'get loop.detect', description: 'View loop detection setting' },
-  { category: 'Routing', syntax: 'set loop.detect <state>', description: 'Set loop detection level' },
+  {
+    category: 'Routing',
+    syntax: 'set loop.detect <off|minimal|moderate|strict>',
+    description: 'Set loop detection level',
+  },
   { category: 'Routing', syntax: 'get txdelay', description: 'View flood traffic retransmit delay' },
   { category: 'Routing', syntax: 'set txdelay <value>', description: 'Set flood traffic retransmit delay' },
   { category: 'Routing', syntax: 'get direct.txdelay', description: 'View direct traffic retransmit delay' },
@@ -104,7 +125,7 @@ export const CLI_COMMANDS: CliCommand[] = [
   { category: 'Routing', syntax: 'get agc.reset.interval', description: 'View AGC reset interval' },
   { category: 'Routing', syntax: 'set agc.reset.interval <value>', description: 'Set AGC reset interval' },
   { category: 'Routing', syntax: 'get multi.acks', description: 'View Multi-Acks support' },
-  { category: 'Routing', syntax: 'set multi.acks <state>', description: 'Enable or disable Multi-Acks' },
+  { category: 'Routing', syntax: 'set multi.acks <0|1>', description: 'Enable or disable Multi-Acks' },
   { category: 'Routing', syntax: 'get flood.advert.interval', description: 'View flood advert interval' },
   { category: 'Routing', syntax: 'set flood.advert.interval <hours>', description: 'Set flood advert interval' },
   { category: 'Routing', syntax: 'get advert.interval', description: 'View zero-hop advert interval' },
@@ -147,6 +168,23 @@ export const CLI_COMMANDS: CliCommand[] = [
   { category: 'Sensors', syntax: 'sensor list [start]', description: 'Display available sensors' },
   { category: 'Sensors', syntax: 'sensor get <key>', description: 'View sensor value' },
   { category: 'Sensors', syntax: 'sensor set <key> <value>', description: 'Set sensor value' },
+  { category: 'Sensors', syntax: 'io', description: 'Read GPIO register as hex (sensor role only)' },
+  { category: 'Sensors', syntax: 'io <hex_val>', description: 'Write GPIO register directly (sensor role only)' },
+  {
+    category: 'Sensors',
+    syntax: 'io s <hex_mask>',
+    description: 'Set GPIO bits HIGH without altering others (sensor role only)',
+  },
+  {
+    category: 'Sensors',
+    syntax: 'io r <hex_mask>',
+    description: 'Reset GPIO bits LOW without altering others (sensor role only)',
+  },
+  {
+    category: 'Sensors',
+    syntax: 'io t <hex_mask>',
+    description: 'Toggle GPIO bits (sensor role only)',
+  },
 
   { category: 'Bridge', syntax: 'get bridge.type', description: 'Display compiled bridge type' },
   { category: 'Bridge', syntax: 'get bridge.enabled', description: 'View bridge enabled flag' },

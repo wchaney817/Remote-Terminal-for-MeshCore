@@ -39,4 +39,19 @@ describe('cliCommands', () => {
       expect(commandPrefix(cmd.syntax).length).toBeGreaterThan(0);
     }
   });
+
+  it('suggests the sensor-role io GPIO sub-forms', () => {
+    const syntaxes = matchCliCommands('io').map((m) => m.syntax);
+    expect(syntaxes).toEqual(
+      expect.arrayContaining(['io', 'io <hex_val>', 'io s <hex_mask>', 'io r <hex_mask>', 'io t <hex_mask>'])
+    );
+  });
+
+  it('reflects multi.acks and loop.detect as verified against firmware source', () => {
+    const multiAcks = CLI_COMMANDS.find((c) => c.syntax.startsWith('set multi.acks'));
+    expect(multiAcks?.syntax).toBe('set multi.acks <0|1>');
+
+    const loopDetect = CLI_COMMANDS.find((c) => c.syntax.startsWith('set loop.detect'));
+    expect(loopDetect?.syntax).toBe('set loop.detect <off|minimal|moderate|strict>');
+  });
 });
