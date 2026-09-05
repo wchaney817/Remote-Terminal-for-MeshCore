@@ -5,8 +5,11 @@
 // listed conflicting details for a few commands. Notable corrections that fell out of
 // that verification:
 //   - `stats-core`/`stats-radio`/`stats-packets` and bare `log` are gated by
-//     `sender_timestamp == 0` in CommonCLI.cpp — i.e. serial-only, same as `erase`.
-//     The canonical docs page doesn't call this out for these four.
+//     `sender_timestamp == 0` in CommonCLI.cpp — i.e. serial-only, same as `erase`. The
+//     canonical docs page's raw markdown *does* call this out ("Serial Only: Yes") — an
+//     earlier pass here missed it because it went through WebFetch's lossy HTML→text
+//     summary instead of the raw source; fetch `docs/cli_commands.md`'s raw content
+//     directly (e.g. via `gh api repos/meshcore-dev/MeshCore/contents/...`) next time.
 //   - `set freq`/`set prv.key` are also `sender_timestamp == 0`-gated (serial-only),
 //     not just their `get` counterparts.
 //   - `multi.acks` is a 0/1 boolean flag (`constrain(_prefs->multi_acks, 0, 1)` in
