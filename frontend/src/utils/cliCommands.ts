@@ -19,8 +19,9 @@
 //   - Sensor-role `io` GPIO commands exist (examples/simple_sensor/SensorMesh.cpp) but
 //     aren't in the canonical docs page at all.
 //
-// The firmware has no `help` command of its own — this file is the only reference
-// available at the console.
+// The firmware has no `help` command of its own — this file's one-line descriptions are the
+// only reference available at the console itself. For the fuller Usage/Parameters/Default/
+// Notes/Examples detail behind each command, see ../../../README_CLI.md.
 //
 // A few commands are marked "(serial only)" — they're not usable over the RF admin CLI
 // link this console talks over, only via a direct USB serial connection to the device.

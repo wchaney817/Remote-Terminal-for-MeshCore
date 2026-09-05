@@ -256,6 +256,7 @@ If you enable Basic Auth, protect the app with HTTPS. HTTP Basic credentials are
 
 - Advanced setup, troubleshooting, HTTPS, systemd, remediation variables, and debug logging: [README_ADVANCED.md](README_ADVANCED.md)
 - Home Assistant-specific guidance and entity/sensor naming schemes: [README_HA.md](README_HA.md)
+- Detailed MeshCore admin CLI reference (every command's parameters, defaults, and notes): [README_CLI.md](README_CLI.md)
 - Contributing, tests, linting, E2E notes, and important AGENTS files: [CONTRIBUTING.md](CONTRIBUTING.md)
 - Live API docs after the backend is running: http://localhost:8000/docs
 
