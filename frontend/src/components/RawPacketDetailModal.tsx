@@ -624,6 +624,14 @@ type CoreScopeState =
   | { status: 'error'; message: string }
   | { status: 'done'; result: CoreScopeAnalysis };
 
+// Same Strong/Okay/Weak thresholds as the raw-packet-feed session stats
+// (see rawPacketStats.ts's rssiBucketCounts), reused here for visual consistency.
+function rssiColorClass(rssi: number): string {
+  if (rssi > -70) return 'text-success';
+  if (rssi >= -85) return 'text-warning';
+  return 'text-destructive';
+}
+
 // Personal-fork addition (not upstream): lookup against NTXMesh's community
 // CoreScope instance to see who else in the region heard this packet. Fired
 // once per packet opened in the inspector (still one call per user action,
@@ -702,12 +710,16 @@ function CoreScopePanel({ packetId }: { packetId: number }) {
                 <span className="font-medium text-foreground">
                   {observer.observer_name ?? 'Unknown observer'}
                 </span>
-                <span className="text-xs text-muted-foreground">
-                  {[
-                    observer.rssi !== null ? `RSSI ${observer.rssi} dBm` : null,
-                    observer.snr !== null ? `SNR ${observer.snr} dB` : null,
-                    observer.heard_at,
-                  ]
+                <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                  {observer.rssi !== null && (
+                    <>
+                      <span className={cn('font-medium', rssiColorClass(observer.rssi))}>
+                        RSSI {observer.rssi} dBm
+                      </span>
+                      {(observer.snr !== null || observer.heard_at) && <span>·</span>}
+                    </>
+                  )}
+                  {[observer.snr !== null ? `SNR ${observer.snr} dB` : null, observer.heard_at]
                     .filter(Boolean)
                     .join(' · ')}
                 </span>

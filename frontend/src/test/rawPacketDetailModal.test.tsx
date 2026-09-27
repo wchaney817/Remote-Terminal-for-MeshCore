@@ -111,6 +111,28 @@ describe('RawPacketDetailModal', () => {
     expect(screen.getByText(/Heard by/)).toHaveTextContent('2 of 3 hops resolved');
   });
 
+  it('color-codes observer RSSI as strong/okay/weak, matching the raw-packet-feed thresholds', async () => {
+    mockGetCoreScope.mockResolvedValueOnce({
+      found: true,
+      packet_hash: 'ABCD1234',
+      observation_count: 3,
+      resolved_path: [],
+      observers: [
+        { observer_name: 'strong-obs', rssi: -60, snr: 12, path_hex: null, heard_at: null },
+        { observer_name: 'okay-obs', rssi: -80, snr: 8, path_hex: null, heard_at: null },
+        { observer_name: 'weak-obs', rssi: -95, snr: -2, path_hex: null, heard_at: null },
+      ],
+      source: 'https://ntxmesh.dhovin.me',
+    } satisfies CoreScopeAnalysis);
+
+    render(<RawPacketDetailModal packet={BOT_PACKET} channels={[BOT_CHANNEL]} onClose={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByText('RSSI -60 dBm')).toBeInTheDocument());
+    expect(screen.getByText('RSSI -60 dBm')).toHaveClass('text-success');
+    expect(screen.getByText('RSSI -80 dBm')).toHaveClass('text-warning');
+    expect(screen.getByText('RSSI -95 dBm')).toHaveClass('text-destructive');
+  });
+
   it('copies the full packet hex to the clipboard', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.assign(navigator, {
