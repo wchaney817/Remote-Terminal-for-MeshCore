@@ -93,6 +93,24 @@ describe('RawPacketDetailModal', () => {
     expect(screen.getByText(/Heard by/)).toHaveTextContent('Heard by 2 independent observers');
   });
 
+  it('renders a partial hop count when CoreScope could not resolve every hop', async () => {
+    mockGetCoreScope.mockResolvedValueOnce({
+      found: true,
+      packet_hash: 'A0E8BC8B1D0DF128',
+      observation_count: 1,
+      resolved_path: ['aa', null, 'cc'],
+      observers: [
+        { observer_name: 'WC-obs-bot', rssi: -66, snr: 12.25, path_hex: '["A97A"]', heard_at: '2026-09-27T18:46:07Z' },
+      ],
+      source: 'https://ntxmesh.dhovin.me',
+    } satisfies CoreScopeAnalysis);
+
+    render(<RawPacketDetailModal packet={BOT_PACKET} channels={[BOT_CHANNEL]} onClose={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByText('WC-obs-bot')).toBeInTheDocument());
+    expect(screen.getByText(/Heard by/)).toHaveTextContent('2 of 3 hops resolved');
+  });
+
   it('copies the full packet hex to the clipboard', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.assign(navigator, {

@@ -678,12 +678,21 @@ function CoreScopePanel({ packetId }: { packetId: number }) {
 
       {state.status === 'done' && state.result.found ? (
         <div className="mt-2.5 space-y-2">
-          <div className="text-sm text-foreground">
-            Heard by <span className="font-semibold">{state.result.observation_count}</span>{' '}
-            independent observer{state.result.observation_count === 1 ? '' : 's'} ·{' '}
-            {state.result.resolved_path.length} hop
-            {state.result.resolved_path.length === 1 ? '' : 's'} resolved
-          </div>
+          {(() => {
+            const totalHops = state.result.resolved_path.length;
+            const resolvedHops = state.result.resolved_path.filter((hop) => hop !== null).length;
+            const hopSummary =
+              resolvedHops === totalHops
+                ? `${totalHops} hop${totalHops === 1 ? '' : 's'} resolved`
+                : `${resolvedHops} of ${totalHops} hop${totalHops === 1 ? '' : 's'} resolved`;
+            return (
+              <div className="text-sm text-foreground">
+                Heard by <span className="font-semibold">{state.result.observation_count}</span>{' '}
+                independent observer{state.result.observation_count === 1 ? '' : 's'} ·{' '}
+                {hopSummary}
+              </div>
+            );
+          })()}
           <div className="space-y-1">
             {state.result.observers.map((observer, i) => (
               <div

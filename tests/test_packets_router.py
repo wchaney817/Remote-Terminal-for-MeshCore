@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import pytest
 
+from app.models import CoreScopeAnalysis
 from app.repository import ChannelRepository, MessageRepository, RawPacketRepository
 
 
@@ -803,3 +804,20 @@ class TestMaintenanceEndpoint:
         )
 
         assert response.status_code == 422
+
+
+class TestCoreScopeAnalysisModel:
+    """CoreScope (ntxmesh.dhovin.me) can return a resolved_path with null entries for
+    hops it hasn't seen advert — verified 2026-09-27 against a real production 500:
+    the model previously required every entry to be a string and crashed on any
+    packet with an unresolvable hop.
+    """
+
+    def test_accepts_null_entries_in_resolved_path(self):
+        analysis = CoreScopeAnalysis(
+            found=True,
+            packet_hash="A0E8BC8B1D0DF128",
+            observation_count=1,
+            resolved_path=["a97a03048f3abba02a979120b59ade905d2bb8b2d647375a37dba1c8999ed919", None, "5b0e0fea"],
+        )
+        assert analysis.resolved_path[1] is None

@@ -391,7 +391,8 @@ export interface CoreScopeAnalysis {
   found: boolean;
   packet_hash: string;
   observation_count: number;
-  resolved_path: string[];
+  /** A null entry is a hop CoreScope couldn't resolve to a known pubkey. */
+  resolved_path: (string | null)[];
   observers: CoreScopeObserver[];
   source: string;
 }

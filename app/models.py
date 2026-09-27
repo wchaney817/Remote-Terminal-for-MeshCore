@@ -545,7 +545,13 @@ class CoreScopeAnalysis(BaseModel):
     found: bool
     packet_hash: str
     observation_count: int = 0
-    resolved_path: list[str] = Field(default_factory=list)
+    resolved_path: list[str | None] = Field(
+        default_factory=list,
+        description=(
+            "Hop pubkeys in order; a null entry is a hop CoreScope couldn't resolve to a "
+            "known pubkey (e.g. a node it has never seen advert)."
+        ),
+    )
     observers: list[CoreScopeObserver] = Field(default_factory=list)
     source: str = "https://ntxmesh.dhovin.me"
 
