@@ -624,14 +624,15 @@ type CoreScopeState =
   | { status: 'error'; message: string }
   | { status: 'done'; result: CoreScopeAnalysis };
 
-// Personal-fork addition (not upstream): on-demand lookup against NTXMesh's
-// community CoreScope instance to see who else in the region heard this
-// packet. Fetched only on click — never automatically or in bulk, since
-// CoreScope is infrastructure someone else runs, not ours.
+// Personal-fork addition (not upstream): lookup against NTXMesh's community
+// CoreScope instance to see who else in the region heard this packet. Fired
+// once per packet opened in the inspector (still one call per user action,
+// not a poll/background job) — CoreScope is infrastructure someone else
+// runs, not ours, so this must never turn into a schedule or bulk sweep.
 function CoreScopePanel({ packetId }: { packetId: number }) {
   const [state, setState] = useState<CoreScopeState>({ status: 'idle' });
 
-  const handleCheck = useCallback(async () => {
+  const runCheck = useCallback(async () => {
     setState({ status: 'loading' });
     try {
       const result = await api.getPacketCoreScopeAnalysis(packetId);
@@ -641,24 +642,27 @@ function CoreScopePanel({ packetId }: { packetId: number }) {
     }
   }, [packetId]);
 
+  useEffect(() => {
+    void runCheck();
+  }, [runCheck]);
+
   return (
     <div className="mt-3 rounded-lg border border-border/70 bg-card/70 p-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <div className="text-xl font-semibold text-foreground">Who heard this</div>
           <div className="text-[0.8125rem] text-muted-foreground">
-            One-off lookup against NTXMesh's community CoreScope instance — not automatic, not
-            cached.
+            Live lookup against NTXMesh's community CoreScope instance — not cached.
           </div>
         </div>
         <Button
           type="button"
           variant="outline"
           size="sm"
-          onClick={handleCheck}
+          onClick={runCheck}
           disabled={state.status === 'loading'}
         >
-          {state.status === 'loading' ? 'Checking...' : 'Check CoreScope'}
+          {state.status === 'loading' ? 'Checking...' : 'Refresh'}
         </Button>
       </div>
 

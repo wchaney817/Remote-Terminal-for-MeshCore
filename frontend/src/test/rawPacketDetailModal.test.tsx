@@ -1,8 +1,8 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { RawPacketDetailModal } from '../components/RawPacketDetailModal';
-import type { Channel, RawPacket } from '../types';
+import type { Channel, CoreScopeAnalysis, RawPacket } from '../types';
 
 vi.mock('../components/ui/sonner', () => ({
   toast: Object.assign(vi.fn(), {
@@ -12,10 +12,18 @@ vi.mock('../components/ui/sonner', () => ({
   }),
 }));
 
+vi.mock('../api', () => ({
+  api: {
+    getPacketCoreScopeAnalysis: vi.fn(),
+  },
+}));
+
 const { toast } = await import('../components/ui/sonner');
+const { api } = await import('../api');
 const mockToast = toast as unknown as {
   success: ReturnType<typeof vi.fn>;
 };
+const mockGetCoreScope = api.getPacketCoreScopeAnalysis as unknown as ReturnType<typeof vi.fn>;
 
 const BOT_CHANNEL: Channel = {
   key: 'eb50a1bcb3e4e5d7bf69a57c9dada211',
@@ -53,6 +61,38 @@ const SCOPED_PACKET: RawPacket = {
 };
 
 describe('RawPacketDetailModal', () => {
+  beforeEach(() => {
+    mockGetCoreScope.mockReset();
+    mockGetCoreScope.mockResolvedValue({
+      found: false,
+      packet_hash: '0000000000000000',
+      observation_count: 0,
+      resolved_path: [],
+      observers: [],
+      source: 'https://ntxmesh.dhovin.me',
+    } satisfies CoreScopeAnalysis);
+  });
+
+  it('fetches the CoreScope "who heard this" lookup automatically, with no button click needed', async () => {
+    const result: CoreScopeAnalysis = {
+      found: true,
+      packet_hash: 'ABCD1234',
+      observation_count: 2,
+      resolved_path: ['aa', 'bb'],
+      observers: [
+        { observer_name: 'anclote', rssi: -70, snr: 5.25, path_hex: '["4284"]', heard_at: '2026-09-27T00:00:00Z' },
+      ],
+      source: 'https://ntxmesh.dhovin.me',
+    };
+    mockGetCoreScope.mockResolvedValueOnce(result);
+
+    render(<RawPacketDetailModal packet={BOT_PACKET} channels={[BOT_CHANNEL]} onClose={vi.fn()} />);
+
+    expect(mockGetCoreScope).toHaveBeenCalledWith(BOT_PACKET.id);
+    await waitFor(() => expect(screen.getByText('anclote')).toBeInTheDocument());
+    expect(screen.getByText(/Heard by/)).toHaveTextContent('Heard by 2 independent observers');
+  });
+
   it('copies the full packet hex to the clipboard', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.assign(navigator, {
