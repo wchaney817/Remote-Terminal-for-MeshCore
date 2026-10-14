@@ -17,6 +17,11 @@ import { toast } from './ui/sonner';
 
 type Tab = 'new-contact' | 'new-channel' | 'hashtag' | 'bulk-hashtag';
 
+// Personal-fork-only tweak (not upstreamed): pre-check "Try decrypting stored packets" on the
+// channel tabs so a newly added channel backfills from history unless explicitly unchecked.
+// The contact tab keeps upstream's opt-in default.
+const defaultTryHistorical = (tab: Tab) => tab !== 'new-contact';
+
 interface BulkParseResult {
   channelNames: string[];
   invalidNames: string[];
@@ -118,13 +123,13 @@ export function NewMessageModal({
   const hashtagInputRef = useRef<HTMLInputElement>(null);
   const bulkTextareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const resetForm = () => {
+  const resetForm = (nextTab: Tab = tab) => {
     setName('');
     setContactType(1);
     setContactKey('');
     setChannelKey('');
     setBulkChannelText('');
-    setTryHistorical(false);
+    setTryHistorical(defaultTryHistorical(nextTab));
     setPermitExtended(false);
     setError('');
   };
@@ -140,7 +145,7 @@ export function NewMessageModal({
       setContactKey('');
       setChannelKey('');
       setBulkChannelText('');
-      setTryHistorical(false);
+      setTryHistorical(defaultTryHistorical(prefillRequest.tab));
       setPermitExtended(false);
       setError('');
       setLoading(false);
@@ -156,7 +161,7 @@ export function NewMessageModal({
       setContactKey('');
       setChannelKey('');
       setBulkChannelText('');
-      setTryHistorical(false);
+      setTryHistorical(defaultTryHistorical('bulk-hashtag'));
       setPermitExtended(false);
       setError('');
       setLoading(false);
@@ -167,7 +172,12 @@ export function NewMessageModal({
     }
 
     setTab('new-contact');
+    setTryHistorical(defaultTryHistorical('new-contact'));
   }, [open, prefillRequest, showBulkAddChannelTab]);
+
+  const showHistoricalOption = undecryptedCount > 0;
+  // The checkbox is hidden (but may still be checked by default) when nothing is stored.
+  const effectiveTryHistorical = tryHistorical && showHistoricalOption;
 
   const handleCreate = async () => {
     setError('');
@@ -179,13 +189,13 @@ export function NewMessageModal({
           setError('Name and public key are required');
           return;
         }
-        await onCreateContact(name.trim(), contactKey.trim(), tryHistorical, contactType);
+        await onCreateContact(name.trim(), contactKey.trim(), effectiveTryHistorical, contactType);
       } else if (tab === 'new-channel') {
         if (!name.trim() || !channelKey.trim()) {
           setError('Channel name and key are required');
           return;
         }
-        await onCreateChannel(name.trim(), channelKey.trim(), tryHistorical);
+        await onCreateChannel(name.trim(), channelKey.trim(), effectiveTryHistorical);
       } else if (tab === 'hashtag') {
         const channelName = name.trim();
         const validationError = validateHashtagName(channelName, permitExtended);
@@ -194,7 +204,7 @@ export function NewMessageModal({
           return;
         }
         const normalizedName = permitExtended ? channelName : channelName.toLowerCase();
-        await onCreateHashtagChannel(`#${normalizedName}`, tryHistorical);
+        await onCreateHashtagChannel(`#${normalizedName}`, effectiveTryHistorical);
       } else {
         const { channelNames, invalidNames } = parseBulkHashtagNames(
           bulkChannelText,
@@ -208,7 +218,7 @@ export function NewMessageModal({
           setError(`Invalid channel names: ${invalidNames.join(', ')}`);
           return;
         }
-        await onBulkAddHashtagChannels(channelNames, tryHistorical);
+        await onBulkAddHashtagChannels(channelNames, effectiveTryHistorical);
       }
 
       resetForm();
@@ -235,7 +245,7 @@ export function NewMessageModal({
     setLoading(true);
     try {
       const normalizedName = permitExtended ? channelName : channelName.toLowerCase();
-      await onCreateHashtagChannel(`#${normalizedName}`, tryHistorical);
+      await onCreateHashtagChannel(`#${normalizedName}`, effectiveTryHistorical);
       setName('');
       hashtagInputRef.current?.focus();
     } catch (err) {
@@ -247,8 +257,6 @@ export function NewMessageModal({
       setLoading(false);
     }
   };
-
-  const showHistoricalOption = undecryptedCount > 0;
 
   return (
     <Dialog
@@ -275,7 +283,7 @@ export function NewMessageModal({
           value={tab}
           onValueChange={(value) => {
             setTab(value as Tab);
-            resetForm();
+            resetForm(value as Tab);
           }}
           className="w-full"
         >
